@@ -54,7 +54,7 @@ immune_control = read.FCS("cd45pos2_control_CD45+.fcs", column.pattern = "Time",
 }
 
 # Get expression matrix as a data frame
-expr_matrix <- as.data.frame(immune_control@exprs)
+expr_matrix <- as.data.frame(control_sample@exprs)
 
 ############################
 ###### PREPROCESSING #######
@@ -88,21 +88,21 @@ graph <- bluster::makeSNNGraph(expr_matrix)
 clust <- igraph::cluster_louvain(graph)
 
 ## 3. Add cluster membership column to UMAP
-umap_m$clust <- factor(clust$membership)
+umap_m$cluster_id <- factor(clust$membership)
 
 ## 4. Plot UMAP and color it by cluster 
-ggplot(umap_m, aes(UMAP1, UMAP2, colour = clust)) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot")
+ggplot(umap_m, aes(UMAP1, UMAP2, colour = cluster_id)) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot")
 
 
 ## 5. Get cell's ID (number) for each cluster
-igraph::communities(clust) # for each cluster get the cells ID 
+communities(clust) # for each cluster get the cells ID 
 
 
 ######### B.HSNE-based Gaussian Mean Shift clustering (Cytosplore) #########
 
 
 ## 1. Provide the directory of the fcs files --> already clustered from Cytosplore
-dirFCS = "~/INSA/BIM 2022-2023/Projet 5BIM/real data/HNSE"
+dirFCS = "~/INSA/BIM 2022-2023/Projet 5BIM/real data/Clusters - vp6/HSNE-clusters"
 
 ## 2. Defining a function to read multiple fcs files from 'dir' into a single data.frame: 
 # NB: The column in the output named 'fileName' tracks the original file where each cell came from.
@@ -144,12 +144,11 @@ ggplot(df_HSNE, aes(x=CSPLR_HsneDataX, y=CSPLR_HsneDataY, color=clusters_HSNE))+
 ######### C. flowSOM ######
 
 ## 1. Run function FlowSOM, nClus is set to 10 by default 
-flowsom <- FlowSOM(input = immune_control, 
+flowsom <- FlowSOM(input = control_sample, 
                    transform = FALSE,
                    scale = FALSE,
-                   colsToUse = c(7:9, 11, 13:16,18,19), #provide the columns for the clustering
-                   nClus = 10, #we choose 14, since we also generated 14 clusters by HSNE
-                   seed = 100)
+                   nClus = 10) #we choose 14, since we also generated 14 clusters by HSNE
+          
 
 ## 2. Get metaclustering per cell
 clusters_flowsom <- as.factor(flowsom$map$mapping[,1])
@@ -164,7 +163,6 @@ df_FlowSOM <- cbind(expr_matrix, clusters_flowsom)
 ############################
 
 
-## Option C: UMAP
 # select the columns for the UMAP calculation
 # check different n_neighbours (controls how UMAP balances local versus global structure in the data) for your UMAP plot
 # check min_dist (controls how tightly UMAP is allowed to pack points together, low values=clumpier embeddings) for your UMAP plot
@@ -186,6 +184,6 @@ ggplot(df_FlowSOM, aes(umap_1, umap_2, colour = as.factor(clusters_flowsom))) + 
 
 ##visualize a specific marquer expression level in the UMAP 
 
-marker_value <- df_HSNE$`FJComp-PE-Texas Red-A`
+marker_value <- df_FlowSOM$`SSC-H`
 mid<-mean(marker_value)
 ggplot(df_FlowSOM, aes(umap_1, umap_2, colour = as.numeric(marker_value))) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot HSNE")+scale_color_gradient2(midpoint=mid, low="blue", mid="white", high="red", space ="Lab" )
