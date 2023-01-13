@@ -31,6 +31,7 @@ remotes::install_github("LTLA/bluster")
   library(uwot)
   library(DESeq2)
   library(FlowSOM)
+  library(ggcorrplot)
 }
 
 ############################
@@ -45,10 +46,11 @@ setwd("~/INSA/BIM 2022-2023/Projet 5BIM/real data")
 ############################
 
 {
-tumor_sample = read.FCS("VP4_Tumor_CD45+ cells.fcs")
-control_sample = read.FCS("Vp6_Control_CD45+ cells.fcs")
-mix_sample = read.FCS("MixC_tumeur_CD45+ cells.fcs")
-immune_control = read.FCS("cd45pos2_control_CD45+.fcs")
+tumor_sample = read.FCS("VP4_Tumor_CD45+ cells.fcs", column.pattern = "Time", invert.pattern = TRUE)
+control_sample = read.FCS("Vp6_Control_CD45+ cells.fcs", column.pattern = "Time", invert.pattern = TRUE)
+mix_sample = read.FCS("MixC_tumeur_CD45+ cells.fcs", column.pattern = "Time", invert.pattern = TRUE)
+immune_control = read.FCS("cd45pos2_control_CD45+.fcs", column.pattern = "Time", invert.pattern = TRUE)
+
 }
 
 # Get expression matrix as a data frame
@@ -57,6 +59,8 @@ expr_matrix <- as.data.frame(immune_control@exprs)
 ############################
 ###### PREPROCESSING #######
 ############################
+
+
 
 
 
@@ -180,4 +184,8 @@ ggplot(df_HSNE, aes(umap_1, umap_2, colour = as.factor(clusters_HSNE))) +  geom_
 ggplot(df_FlowSOM, aes(umap_1, umap_2, colour = as.factor(clusters_flowsom))) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot FlowSOM")
 
 
+##visualize a specific marquer expression level in the UMAP 
 
+marker_value <- df_HSNE$`FJComp-PE-Texas Red-A`
+mid<-mean(marker_value)
+ggplot(df_FlowSOM, aes(umap_1, umap_2, colour = as.numeric(marker_value))) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot HSNE")+scale_color_gradient2(midpoint=mid, low="blue", mid="white", high="red", space ="Lab" )
