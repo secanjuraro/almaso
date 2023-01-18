@@ -11,6 +11,8 @@ library(flowStats)
 library(PeacoQC)
 library(FlowSOM)
 library(devtools)
+library(NOISeq)
+library(edgeR)
 
 #######SCRIPT PREPROCESSING#######
 
@@ -66,7 +68,7 @@ dim(clean_fs_fc)
 
 #peacoQC
 
-write.flowSet(fs_log, "cyto_comp_transf")
+write.flowSet(fs_arc, "cyto_comp_transf")
 cyto_ct = read.FCS("cyto_comp_transf/VP4_Tumor_CD45+ cells.fcs", truncate_max_range = FALSE)
 
 peaco_fs <- PeacoQC(cyto_ct, names, determine_good_cells="all",
@@ -76,12 +78,8 @@ peaco_fs <- PeacoQC(cyto_ct, names, determine_good_cells="all",
 fs_peaco_qc = read.flowSet("PeacoQC_results1/fcs_files/VP4_Tumor_CD45+ cells_QC.fcs", truncate_max_range = FALSE)
 
 #### Normalization
-ggcyto(fs_peaco_qc, aes(x = "FJComp-APC-A")) + geom_density() 
-gaussNorm (fs_peaco_qc, "FJComp-APC-A" , base.lms= c(0.8,5))$flowSet
-gaussNorm (fs_peaco_qc, names)
 
-install_github("ucl-cssb/flopr")
-install_github('saeyslab/CytoNorm')
-library(CytoNorm)
+exp_matr <- fs_peaco_qc@frames[["VP4_Tumor_CD45+ cells_QC.fcs"]]@exprs
 
-CytoNorm.train(fs_peaco_qc, "label", names)
+tmm = tmm(exp_matr, long = 1000, lc = 0, k = 0, refColumn = 1, logratioTrim = 0.3, sumTrim = 0.05, doWeighting = TRUE, Acutoff = -1e+10)
+cpm = cpm(tmm)

@@ -32,6 +32,13 @@ remotes::install_github("LTLA/bluster")
   library(DESeq2)
   library(FlowSOM)
   library(ggcorrplot)
+  library(ggfortify)
+  library(factoextra)
+  library(flowAI)
+  library(ggcyto)
+  library(PeacoQC)
+  library(NOISeq)
+  library(edgeR)
 }
 
 ############################
@@ -61,30 +68,48 @@ expr_matrix <- as.data.frame(immune_control@exprs)
 ############################
 
 
-myTrans <- transformList(names, arcsinhTransform())
-expr_matrix<- transform(expr_matrix, myTrans)
+# 1 . Compensation avec flowCore
+fs_comp <- compensate(fsc, spillover(cyto))
+
+# 2. Quality control
+
+#flowAI
+resAI <- flow_auto_qc(fs_log)
+
+##OU 
+
+#peacoQC
+write.flowSet(fs_arc, "cyto_comp_transf")
+cyto_ct = read.FCS("cyto_comp_transf/VP4_Tumor_CD45+ cells.fcs", truncate_max_range = FALSE)
+peaco_fs <- PeacoQC(cyto_ct, names, determine_good_cells="all",
+                    plot=20, save_fcs=TRUE, output_directory=".",
+                    name_directory="PeacoQC_results1", report=TRUE)
+
+fs_peaco_qc = read.flowSet("PeacoQC_results1/fcs_files/VP4_Tumor_CD45+ cells_QC.fcs", truncate_max_range = FALSE)
+
+# 3. Scaling normalization
+
+exp_matr <- fs_peaco_qc@frames[["VP4_Tumor_CD45+ cells_QC.fcs"]]@exprs
+
+tmm = tmm(exp_matr, long = 1000, lc = 0, k = 0, refColumn = 1, logratioTrim = 0.3, sumTrim = 0.05, doWeighting = TRUE, Acutoff = -1e+10)
+cpm = cpm(tmm)
 
 
 ##################################
 ###### DIMENSION REDUCTION #######
 ##################################
 
-library(plot3D)
-library(ggfortify)
-library(pca3d)
-library(ade4)
-library(factoextra)
-
 ##PCA##
 
 # 1. Create PCA
 pca <- prcomp(expr_matrix[7:19])
 
-# 2. E
+# 2. Evaluation of the number of axes
 summary(pca)
 fviz_eig(pca)
 d <- data.frame(PC1 = pca$x[, 1], PC2 = pca$x[, 2], PC3 = pca$x[, 3], PC4 = pca$x[, 4])
-head(d)
+
+# 3. Visualization of the PCA
 ggplot(data = d, aes_string(x = "PC1", y = "PC2")) + geom_point(size = 3)
 
 ############################
