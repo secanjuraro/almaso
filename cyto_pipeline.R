@@ -54,14 +54,15 @@ immune_control = read.FCS("cd45pos2_control_CD45+.fcs", column.pattern = "Time",
 }
 
 # Get expression matrix as a data frame
-expr_matrix <- as.data.frame(control_sample@exprs)
+expr_matrix <- as.data.frame(immune_control@exprs)
 
 ############################
 ###### PREPROCESSING #######
 ############################
 
 
-
+myTrans <- transformList(names, arcsinhTransform())
+expr_matrix<- transform(expr_matrix, myTrans)
 
 
 ############################
@@ -156,7 +157,8 @@ levels(clusters_flowsom) <- flowsom$metaclustering
 
 ## 3. Add flowsom clusters to dataframe
 df_FlowSOM <- cbind(expr_matrix, clusters_flowsom)
-
+head(df_FlowSOM)
+write.csv(df_FlowSOM, "flowsom_clust_ctrl.csv", sep = ',')
 
 ############################
 ###### VISUALIZATION #######
