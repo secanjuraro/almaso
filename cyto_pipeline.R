@@ -121,8 +121,6 @@ library("CytoTree")
 ?runDiff
 
 
-
-
 ### 2 clustering methods:
 
 ### A. KNN + Louvain clustering 
@@ -151,6 +149,21 @@ ggplot(umap_m, aes(UMAP1, UMAP2, colour = cluster_id)) +  geom_point() +  labs(x
 
 ## 5. Get cell's ID (number) for each cluster
 communities(clust) # for each cluster get the cells ID 
+
+## 6. Create dataframe with cluster id for each cell 
+
+temp_df_KNN <- data.frame(cell = numeric(), cluster_id = numeric())
+
+for(i in names(clusters_cells)){
+  temp_df <- as.data.frame(clusters_cells[i]) 
+  temp_df$cluster_id <- i
+  colnames(temp_df) <- c("cell", "cluster_id")
+  temp_df_KNN <- rbind(temp_df_KNN,temp_df)
+}
+cluster_id <- temp_df_KNN %>% arrange(cell) %>% select(cluster_id)
+
+df_KNN <- cbind(expr_matrix,cluster_id)
+
 
 
 ######### B.HSNE-based Gaussian Mean Shift clustering (Cytosplore) #########
@@ -228,7 +241,7 @@ colnames(umap) <- c('umap_1', 'umap_2')
 d <- cbind(d,umap)
 df_FlowSOM <- cbind(df_FlowSOM,umap)
 df_HSNE <- cbind(df_HSNE,umap)
-
+df_KNN <- cbind(df_KNN, umap)
 
 #visualize and label clusters on umap for each method
 label_HSNE_umap <- df_HSNE%>%group_by(clusters_HSNE)%>%select(umap_1, umap_2)%>%summarize_all(mean)
