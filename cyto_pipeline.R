@@ -46,10 +46,10 @@ setwd("~/INSA/BIM 2022-2023/Projet 5BIM/real data")
 ############################
 
 {
-tumor_sample = read.FCS("VP4_Tumor_CD45+ cells.fcs", column.pattern = "Time", invert.pattern = TRUE)
-control_sample = read.FCS("Vp6_Control_CD45+ cells.fcs", column.pattern = "Time", invert.pattern = TRUE)
-mix_sample = read.FCS("MixC_tumeur_CD45+ cells.fcs", column.pattern = "Time", invert.pattern = TRUE)
-immune_control = read.FCS("cd45pos2_control_CD45+.fcs", column.pattern = "Time", invert.pattern = TRUE)
+tumor_sample = read.FCS("VP4_Tumor_CD45+ cells.fcs", column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
+control_sample = read.FCS("Vp6_Control_CD45+ cells.fcs", column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
+mix_sample = read.FCS("MixC_tumeur_CD45+ cells.fcs", column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
+immune_control = read.FCS("cd45pos2_control_CD45+.fcs", column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
 
 }
 
@@ -65,14 +65,42 @@ myTrans <- transformList(names, arcsinhTransform())
 expr_matrix<- transform(expr_matrix, myTrans)
 
 
+##################################
+###### DIMENSION REDUCTION #######
+##################################
+
+library(plot3D)
+library(ggfortify)
+library(pca3d)
+library(ade4)
+library(factoextra)
+
+##PCA##
+
+# 1. Create PCA
+pca <- prcomp(expr_matrix[7:19])
+
+# 2. E
+summary(pca)
+fviz_eig(pca)
+d <- data.frame(PC1 = pca$x[, 1], PC2 = pca$x[, 2], PC3 = pca$x[, 3], PC4 = pca$x[, 4])
+head(d)
+ggplot(data = d, aes_string(x = "PC1", y = "PC2")) + geom_point(size = 3)
+
 ############################
 ####### CLUSTERING #########
 ############################
 
+BiocManager::install("CytoTree")
+library("CytoTree")
+?runDiff
+
+
+
 
 ### 2 clustering methods:
 
-### A. KNN + Leuvain clustering 
+### A. KNN + Louvain clustering 
 ### B. HSNE-based Gaussian Mean Shift clustering (Cytosplore)
 ### C. flowSOM
 
@@ -81,12 +109,13 @@ expr_matrix<- transform(expr_matrix, myTrans)
 ## 1. Run UMAP on expression matrix and cast it into a data frame 
 # NB: No dimensionality reduction
 
-umap_m <-as.data.frame(umap(expr_matrix))
+umap_m <-as.data.frame(umap(d))
 colnames(umap_m) <- c("UMAP1","UMAP2")
+?cluster_louvain
 
 ## 2. Compute clusters based on a SNN Algorithm + Louvain clustering
-graph <- bluster::makeSNNGraph(expr_matrix)
-clust <- igraph::cluster_louvain(graph)
+graph <- bluster::makeSNNGraph(d)
+clust <- igraph::cluster_louvain(graph, resolution = 0.5)
 
 ## 3. Add cluster membership column to UMAP
 umap_m$cluster_id <- factor(clust$membership)
@@ -145,7 +174,7 @@ ggplot(df_HSNE, aes(x=CSPLR_HsneDataX, y=CSPLR_HsneDataY, color=clusters_HSNE))+
 ######### C. flowSOM ######
 
 ## 1. Run function FlowSOM, nClus is set to 10 by default 
-flowsom <- FlowSOM(input = control_sample, 
+flowsom <- FlowSOM(input = immune_control, 
                    transform = FALSE,
                    scale = FALSE,
                    nClus = 10) #we choose 14, since we also generated 14 clusters by HSNE
@@ -156,7 +185,7 @@ clusters_flowsom <- as.factor(flowsom$map$mapping[,1])
 levels(clusters_flowsom) <- flowsom$metaclustering
 
 ## 3. Add flowsom clusters to dataframe
-df_FlowSOM <- cbind(expr_matrix, clusters_flowsom)
+df_FlowSOM <- cbind(d, clusters_flowsom)
 head(df_FlowSOM)
 write.csv(df_FlowSOM, "flowsom_clust_ctrl.csv", sep = ',')
 
@@ -168,10 +197,10 @@ write.csv(df_FlowSOM, "flowsom_clust_ctrl.csv", sep = ',')
 # select the columns for the UMAP calculation
 # check different n_neighbours (controls how UMAP balances local versus global structure in the data) for your UMAP plot
 # check min_dist (controls how tightly UMAP is allowed to pack points together, low values=clumpier embeddings) for your UMAP plot
-umap <- umap(expr_matrix, n_neighbors = 30, min_dist=0.001, verbose=TRUE)
+umap <- umap(d, n_neighbors = 30, min_dist=0.001, verbose=TRUE)
 umap<- as.data.frame(umap)
 colnames(umap) <- c('umap_1', 'umap_2')
-expr_matrix <- cbind(expr_matrix,umap)
+d <- cbind(d,umap)
 df_FlowSOM <- cbind(df_FlowSOM,umap)
 df_HSNE <- cbind(df_HSNE,umap)
 
