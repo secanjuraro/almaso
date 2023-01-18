@@ -256,3 +256,36 @@ ggplot(df_FlowSOM, aes(umap_1, umap_2, colour = as.factor(clusters_flowsom))) + 
 marker_value <- df_FlowSOM$`SSC-H`
 mid<-mean(marker_value)
 ggplot(df_FlowSOM, aes(umap_1, umap_2, colour = as.numeric(marker_value))) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot HSNE")+scale_color_gradient2(midpoint=mid, low="blue", mid="white", high="red", space ="Lab" )
+
+
+###########################
+###### WILCOX TEST ########
+###########################
+
+
+df_KNN_DE <- df_KNN %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% arrange(as.numeric(cluster_id))
+df_KNN_DE <- df_KNN_DE %>% subset(as.numeric(cluster_id) < 5)
+
+
+temp_df <- subset(df_KNN_DE, select = -c(cluster_id))
+markers <- colnames(temp_df)
+
+clusters_id <- order(levels(factor(df_KNN_DE$cluster_id)))
+
+
+
+df_Wilcox <- data.frame(marker = character(),cluster_a = numeric(), cluster_b = numeric(), pvalue = numeric())
+for(i in markers){
+  for(j in 1:(length(clusters_id)-1)){
+    for(k in (j+1):length(clusters_id)){
+        cluster_a <- df_KNN_DE %>% filter(cluster_id == j) %>% pull(i)
+        cluster_b <- df_KNN_DE %>% filter(cluster_id == k) %>% pull(i)
+        pvalue <- wilcox.test(cluster_a,cluster_b)$p.value
+        info <- c(i,j,k,pvalue)
+        df_Wilcox <- rbind(df_Wilcox,info)
+    }
+  }
+}
+colnames(df_Wilcox) <- c("marker", "cluster_a","cluster_b","p_value")
+df_Wilcox$adj_pvalue <- p.adjust(df_Wilcox$p_value,"BH")
+df_Wilcox <- df_Wilcox %>% group_by(cluster_a,marker) %>% arrange(adj_pvalue,.by_group = TRUE)
