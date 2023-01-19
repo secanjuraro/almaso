@@ -281,11 +281,14 @@ for(i in markers){
         cluster_a <- df_KNN_DE %>% filter(cluster_id == j) %>% pull(i)
         cluster_b <- df_KNN_DE %>% filter(cluster_id == k) %>% pull(i)
         pvalue <- wilcox.test(cluster_a,cluster_b)$p.value
+        fold_change <- log2(abs((df_FC[[i]][j])/(df_FC[[i]][[k]])))
         info <- c(i,j,k,pvalue)
         df_Wilcox <- rbind(df_Wilcox,info)
     }
   }
 }
-colnames(df_Wilcox) <- c("marker", "cluster_a","cluster_b","p_value")
+ccolnames(df_Wilcox) <- c("marker", "cluster_a","cluster_b","p_value","FC")
 df_Wilcox$adj_pvalue <- p.adjust(df_Wilcox$p_value,"BH")
+df_Wilcox$cluster_a <- as.numeric(df_Wilcox$cluster_a)
+df_Wilcox$cluster_b <- as.numeric(df_Wilcox$cluster_b)
 df_Wilcox <- df_Wilcox %>% group_by(cluster_a,marker) %>% arrange(adj_pvalue,.by_group = TRUE)
