@@ -74,7 +74,7 @@ fs_comp <- compensate(fsc, spillover(cyto))
 # 2. Quality control
 
 #flowAI
-resAI <- flow_auto_qc(fs_log)
+resAI <- flow_auto_qc(fs_comp)
 
 ##OU 
 
@@ -93,6 +93,7 @@ exp_matr <- fs_peaco_qc@frames[["VP4_Tumor_CD45+ cells_QC.fcs"]]@exprs
 
 tmm = tmm(exp_matr, long = 1000, lc = 0, k = 0, refColumn = 1, logratioTrim = 0.3, sumTrim = 0.05, doWeighting = TRUE, Acutoff = -1e+10)
 cpm = cpm(tmm)
+
 
 
 ##################################
