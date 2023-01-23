@@ -68,7 +68,7 @@ expr_matrix <- as.data.frame(immune_control@exprs)
 fs_comp <- compensate(fs_immune_control, spillover(cyto))
 
 # 2. Quality control
-{
+
   #' @title Apply PeacoQC analysis to a flowSet 
   #' @name peaco_QC
   #' @description Apply the function PeacoQC from the package PeacoQC to a flowSet to determine peaks and to remove anomalies caused by e.g. clogs, changes in speed etc.
@@ -91,7 +91,7 @@ fs_comp <- compensate(fs_immune_control, spillover(cyto))
     
     return(fsc_peaco_qc)
   }    
-}
+
 
 fsc_peaco_QC <- peaco_QC(fs_immune_control, file_name)
 
@@ -106,7 +106,7 @@ exp_matr_cpm = cpm(exp_matr_tmm)
 ###### DIMENSION REDUCTION #######
 ##################################
 
-{
+
   #' @title Perform PCA on cells
   #' @name PCA
   #' @description Perform PCA on chosen markers to keep reduced number of dimensions
@@ -124,12 +124,12 @@ exp_matr_cpm = cpm(exp_matr_tmm)
     }
     return(viz)
   }    
-}
+
 
 PCA(exp_matr_cpm, 7, 19)
 summary(pca)
 
-{
+
   #' @title Choose number of PC axis to use for clustering
   #' @name  choose_dims_PCA 
   #' @description Build data frame with chosen number of PC axes (minimum 2 axes)
@@ -151,7 +151,7 @@ summary(pca)
     }
     return (pca_df)
   }    
-}
+
 
 df_pca <- choose_dims_PCA(pca, 5)
 head(df_pca)
@@ -159,11 +159,94 @@ head(df_pca)
 ############################
 ####### CLUSTERING #########
 ############################
+{
+  #' @title Cluster cells by markers 
+  #' @name clustering_cyto
+  #' @description Computes a KNN graph and the Louvain method to find cells clusters 
+  #' @param expr_df a data frame that corresponds to the expression matrix of an FCS file
+  #' @param resolution resolution parameter for finding the clusters
+  #' @return A data frame that corresponds to the expression matrix with a cluster number associated to each cell
+  
+  clustering_cyto <- function(expr_df, resolution) {
+    KNN_graph <- bluster::makeSNNGraph(expr_df) # Build the KNN graph for community detection
+    louvain_clusters <- igraph::cluster_louvain(KNN_graph, resolution = 0.5) # Implementation of the Louvain method to find clusters 
+    clusters_id <<- communities(louvain_clusters) # Get the cluster for each cell
+    
+    df_KNN <- data.frame(cell = numeric(),cluster = numeric()) # dataframe with each cell associated to a cluster
+    
+    for(i in names(clusters_id)){
+      temp_df <- as.data.frame(clusters_id[i]) # get cells in each cluster as a dataframe 
+      temp_df$cluster_id <- i # associate each cell to the corresponding cluster
+      colnames(temp_df) <- c("cell", "cluster_id")
+      df_KNN <- rbind(df_KNN,temp_df)  # bind each temporary dataframe to the previous cluster one 
+    }
+    clusters <- df_KNN %>% arrange(cell) %>% select(cluster_id) # order dataframe by cells and get clusters
+    df_KNN <- cbind(expr_df,clusters)   # bind the cluster column for all cells to expression dataframe 
+  
+    return(df_KNN)
+  } 
 
+  df_KNN <- clustering(expr_matrix)
 
+  #' @title Find the expression of all markers within a cluster
+  #' @name findMarkers_cyto
+  #' @description Computes a Wilcox test to compare the expression of all markers across all clusters. A p-value and a log2 FC are associated to each comparison 
+  #' @param df_KNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
+  #' @return A data frame with all the comparisons made associated to a p value and a FC 
+  
+  findMarkers_cyto <- function(df_KNN) {
+    df_W <<- df_KNN %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% arrange(as.numeric(cluster_id)) #Get data frame for the wilcox test. Delete columns corresponding to the FSC and SSC
+    df_FC <<- df_W %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% summarise(across(everything(),mean)) %>% select(-cluster_id) #Get data frame to calculate the fold change (average expression level for each luster)
+    
+    markers <- colnames(df_FC) # Get markers from df_FC (does not contain column cluster_id)
+    clusters_id <- order(levels(factor(df_W$cluster_id))) # Get the number of clusters and order them 
+    
+    df_markers <- data.frame(marker = character(),cluster_a = numeric(), cluster_b = numeric(), pvalue = numeric(),FC = numeric() ) #Initialize dataframe with all information regarding the expression of markers in the clusters 
+    for(i in markers){   # i browses each marker
+      for(j in 1:(length(clusters_id)-1)){    # j browses each cluster
+        for(k in (j+1):length(clusters_id)){  # once a cluster chosen with j, k browses the rest of the clusters. We do not compare a marker within the same cluster 
+          cluster_a <- df_W %>% filter(cluster_id == j) %>% pull(i)   # get expression values of i for j
+          cluster_b <- df_W %>% filter(cluster_id == k) %>% pull(i)   # get expression values of i for k
+          pvalue <- wilcox.test(cluster_a,cluster_b)$p.value          # get pvalue from wilcox test 
+          fold_change <- log2(abs((df_FC[[i]][j])/(df_FC[[i]][[k]]))) # calculate log2 fold change with the average expression of i in j and k 
+          info <- c(i,j,k,pvalue,fold_change)  # create vector with all informations 
+          df_markers <- rbind(df_markers,info)   # fill the df_Wilcox
+        } # close k loop
+      } #close j loop
+    } #close i loop
+    
+    colnames(df_markers) <- c("marker", "cluster_a","cluster_b","p_value","FC") 
+    df_markers$adj_pvalue <- p.adjust(df_markers$p_value,"BH") #adjust p_value 
+    df_markers$cluster_a <- as.numeric(df_markers$cluster_a) 
+    df_markers$cluster_b <- as.numeric(df_markers$cluster_b)
+    df_markers <- df_markers %>% group_by(cluster_a,marker) %>% arrange(adj_pvalue,.by_group = TRUE)  #arrange dataframe by pvalue 
+    
+    
+    return(df_markers)
 
+    df_wilcox <- findMarkers(df_KNN)
+  }
 
+  #' @title Run UMAP 
+  #' @name RunUMAP_cyto
+  #' @description Plots the UMAP with the clusters and saves a data frame with the UMAP coordinates and the cluster associated to each cell
+  #' @param df_KNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
+  #' @return A plot of the UMAP with the cells coloured by clusters 
+  
+  
+  RunUMAP_cyto <- function(df_KNN){
+    df_umap <- df_KNN %>% select(-(contains("FSC") | contains("SSC"))) %>% select(-c(cluster_id))
+    umap_m <-as.data.frame(umap(df_umap)) 
+    colnames(umap_m) <- c("UMAP1","UMAP2") 
+    umap_m$cluster <- df_KNN$cluster_id
+    plot_umap <- ggplot(umap_m, aes(UMAP1, UMAP2, colour = cluster)) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot")
+    
+    return(plot_umap)
+  }
 
+  plt_umap <- RunUMAP_cyto(df_KNN)
+
+}
 
 ############################
 ###### VISUALIZATION #######
@@ -190,4 +273,27 @@ head(df_pca)
     }
     return (heat)
   }    
+
+
+  #' @title Visualize the expression of a marker
+  #' @name marker_expression
+  #' @description Plots the UMAP with a color gradient that correspond to the expression of a marker 
+  #' @param df_KNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
+  #' @param marker  A string with the name of the marker
+  #' @param df_umap A dataframe with the coordinates of the umap for all cells 
+  #' @return A plot of the UMAP with the cells coloured by clusters 
+
+    marker_expression <- function(df_KNN,marker,df_umap){
+      marker <- paste0(marker)
+      marker_value <- df_KNN[[marker]]
+      mid<-mean(marker_value)
+      plot_marker <- ggplot(df_umap, aes(UMAP1,UMAP2, colour = as.numeric(marker_value))) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot ")+scale_color_gradient2(midpoint=mid, low="blue", mid="white", high="red", space ="Lab" )
+    
+      return(plot_marker)
+      
+    }
+    plt_marker <- marker_expression(df_KNN,"FSC-H",df_umap)
+
 }
+
+
