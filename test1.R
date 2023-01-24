@@ -155,9 +155,9 @@ fs_immune_control = read.flowSet(file_name, column.pattern = "Time", invert.patt
     #' @return A plot of the UMAP with the cells coloured by clusters 
     
     
-    RunUMAP_cyto <- function(df_KNN){
-      #df_umap <- df_KNN %>% select(-(contains("FSC") | contains("SSC"))) %>% select(-c(cluster_id))
-      umap_m <-as.data.frame(umap(df_pca)) 
+    RunUMAP_cyto <- function(df_KNN, df_pca){
+      df_umap <- df_KNN %>% select(-(contains("FSC") | contains("SSC"))) %>% select(-c(cluster_id))
+      umap_m <<-as.data.frame(umap(df_umap)) 
       colnames(umap_m) <- c("UMAP1","UMAP2") 
       umap_m$cluster <- df_KNN$cluster_id
       plot_umap <- ggplot(umap_m, aes(UMAP1, UMAP2, colour = cluster)) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot")
@@ -204,10 +204,55 @@ fs_immune_control = read.flowSet(file_name, column.pattern = "Time", invert.patt
       return(df_markers)
       
     }
+    
+    ############################
+    ###### VISUALIZATION #######
+    ############################
+    
+    #Heatmap
+    
+    {
+      #' @title Make heatmap of marker expression in clusters
+      #' @name  heatmap_cyto 
+      #' @description Build heatmap of mean expression of each marker in each cluster
+      #' @param df_clust a data frame containing the expression matrix and the clusters associated to each cell in the column clusters_id
+      #' @return A heatmap containing the mean expression of each marker in each cluster
+      
+      
+      heatmap_cyto <- function(df_clust) {
+        if ('cluster_id' %in% colnames(df_clust)){
+          #Create new data frame with mean expression of markers by cluster
+          df_clust_mean <- df_clust %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% summarise(across(everything(), mean, na.rm=TRUE))  %>% remove_rownames %>% column_to_rownames(var="cluster_id")
+          #Create heatmap
+          heat <- heatmap(as.matrix(df_clust_mean),Rowv = NA, Colv = NA, xlab = "Marqueur", ylab="Cluster",verbose = TRUE)
+        }else {
+          stop('Clusters  associated to each cells must be contained in column "clusters_id')
+        }
+        return (heat)
+      }    
+      
+      
+      #' @title Visualize the expression of a marker
+      #' @name marker_expression
+      #' @description Plots the UMAP with a color gradient that correspond to the expression of a marker 
+      #' @param df_KNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
+      #' @param marker  A string with the name of the marker
+      #' @param df_umap A dataframe with the coordinates of the umap for all cells 
+      #' @return A plot of the UMAP with the cells coloured by clusters 
+      
+      marker_expression <- function(df_KNN,marker,umap_m){
+        marker <- paste0(marker)
+        marker_value <- df_KNN[[marker]]
+        mid<-mean(marker_value)
+        plot_marker <- ggplot(umap_m, aes(V1,V2, colour = as.numeric(marker_value))) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot ")+scale_color_gradient2(midpoint=mid, low="blue", mid="white", high="red", space ="Lab" )
+        
+        return(plot_marker)
+        
+      }
+    }
+    
 
 }
-  
-  
   
     
 #######################
@@ -225,11 +270,10 @@ PCA(exp_matr_cpm, 7, 19)
 summary(pca)
 
 df_pca <- choose_dims_PCA(pca, 5)
-head(df_pca)
 
 df_KNN <- clustering_cyto(df_pca,exp_matr_cpm)
 
-plt_umap <- RunUMAP_cyto(df_KNN)
+plt_umap <- RunUMAP_cyto(df_KNN, df_pca)
 plt_umap
 
 df_wilcox <- findMarkers_cyto(df_KNN)
@@ -238,3 +282,8 @@ test1 <- df_wilcox %>% filter(adj_pvalue < 0.05 & FC > abs(2.5))
 write.csv(test1, file = 'df_wilcox_pca.csv')
 
 
+heatmap_cyto(df_KNN)
+
+plt_marker <- marker_expression(df_KNN,"FSC-H",umap_m)
+plt_marker
+head(umap_m)
