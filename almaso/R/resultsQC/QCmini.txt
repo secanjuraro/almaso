@@ -1,0 +1,2 @@
+Name file	n. of events	% anomalies	analysis from	% anomalies flow Rate	% anomalies Signal	% anomalies Margins
+Vp6_Control_CD45+ cells	64213	4.44	Flow Rate, Flow Signal and Flow Margin	0	0	4.44
