@@ -7,27 +7,39 @@ output: html_document
 
 ```{r setup, include=FALSE}
 library(knitr)
-knitr::opts_chunk$set(fig.width=10, fig.height=6, echo=TRUE, warning=FALSE, message=FALSE, cache=FALSE)
-source("pipeline_functions.R", local = knitr::knit_global())
+knitr::opts_chunk$set(fig.height = 5, fig.width = 5, fig.align = "center", echo=TRUE, warning=FALSE, message=FALSE, cache=TRUE)
+source("almaso_pipeline.R", local = knitr::knit_global())
 ```
 
-# Vignette: Flow cytometry data analysis workflow
+# **Vignette: Flow cytometry data analysis workflow**
 
 With this workflow, you will be able to analyse your flow cytometry data as single cell RNAseq data. The goal of the project was to build a pipeline to analyze flow cytometry data in the manner of scRNA-Seq.
 
-The functions used in this vignette are stored in the *pipeline_functions.R .*
+The functions used in this vignette are stored in the *pipeline_functions.R .* To sum up, the pipeline goes through all those steps:
+
+1.  [Load the datas]
+
+2.  [Pre-processing]
+
+3.  [Dimension Reduction]
+
+4.  [Clustering]
+
+5.  [Differential expression and identification of markers]
+
+6.  [Biological interpretation]
+
+This present vignette will show you how to use the function implemented in this pipeline and the justification behind the choice made.
 
 ### Libraries
 
 Be careful to really import all packages present in the environment. The *renv* environment store every package necessary in the right version.
 
-```{r libraries, eval=TRUE, echo=FALSE}
+```{r libraries}
 {
   library(flowCore)
   library(flowAI)
-  #library(flowClean)
   library(ggcyto)
-  #library(flowStats)
   library(PeacoQC)
   library(data.table)
   library(Seurat)
@@ -96,8 +108,10 @@ The idea is to compensate for spillover between channels by applying a spillover
 Some flow cytometry datasets may already be compensated, so be careful. Here our data were already compensate, so the code is only an example. We use the *compensate* function from **flowCore**.
 
 ```{r compensation, eval=FALSE, include=TRUE}
-comp.mat <- tumor_sample[[1]]@description$`$SPILLOVER`
-tumor_sample_comp <- compensate(tumor_sample, comp.mat)
+if(exists("tumor_sample[[1]]@description$`$SPILLOVER`")){
+  comp.mat <- tumor_sample[[1]]@description$`$SPILLOVER`
+  tumor_sample_comp <- compensate(tumor_sample, comp.mat)
+}
 ```
 
 ### Quality control
@@ -114,7 +128,7 @@ Second is **peacoQC**. It determines peaks on the channels in the *flowframe*. T
 
 The *peaco_QC* function is from our package. It is using the *PeacoQC* function from the **peacoQC** package. The return object *control_sample_peacoQC* is a flowSet. A directory **PeacoQC_results** will be created, containing the data cleaned and some graphs.
 
-```{r PeacoQC}
+```{r PeacoQC, message=TRUE, warning=TRUE}
 names <- colnames(control_sample)
 control_sample_peacoQC <- peaco_QC(control_sample, file_name_control)
 ```
@@ -131,8 +145,7 @@ First we extract the expression matrix from the cleaned dataset.
 
 ```{r exp_mat}
 exp_mat_control <- exprs(control_sample_peacoQC[[1]])
-head(exp_mat_control)
-
+summary(exp_mat_control)
 #expr_matrix <- exprs(control_sample_qcAI)
 ```
 
@@ -143,13 +156,11 @@ dexmat <- as.data.frame(exp_mat_control)
 boxplot(dexmat, col = rainbow(ncol(dexmat)))
 ```
 
-To normalize data, we decided to treat the flow cytometry data as scRNA-Seq data. So we used TMM and logCPM scaling and normalization on the expression matrix.
+To normalize data, we decided to treat the flow cytometry data as scRNA-Seq data. So we used logCPM normalization on the expression matrix. First the function *norm_cyto* sets every negative value of expression matrix to 0 and removes the non useful column (*Original_ID*). It then performs the logCPM normalisation.
 
 ```{r normalization, echo=TRUE}
-## Attention NA
-exp_mat_tmm = tmm(exp_mat_control, long = 1000, lc = 0, k = 0, refColumn = 1, logratioTrim = 0.3, sumTrim = 0.05, doWeighting = TRUE, Acutoff = -1e+10)
-
-exp_mat_cpm = cpm(exp_mat_tmm)
+exp_mat_cpm <- norm_cyto(exp_mat_control)
+summary(exp_mat_cpm)
 ```
 
 Let's now visualize the impact of normalization.
@@ -193,6 +204,12 @@ Let's visualize the first 2 axes of the axes we choose to keep.
 ggplot(data = df_pca, aes_string(x = "PC1", y = "PC2")) + geom_point(size = 3, color= "orange")
 ```
 
+Here with this graph we can have a look of all contribution of variables to the variance.
+
+```{r contribution_pca}
+fviz_contrib(pca, "var")
+```
+
 ## Clustering
 
 To form clusters in our data, the (KNN + Louvain) clustering is applied, which is the same clustering method used in Seurat for scRNA-Seq data analysis. The function *clustering_cyto* separate and cluster data on the data frame returned by the PCA. It then attach to the expression matrix, cleaned and normalized, a column (*cluster_id)* that associate to each cell its cluster's ID. The result, here stored as df_KNN, is a dataframe (expression matrix + cluster_id).
@@ -207,8 +224,8 @@ head(df_KNN)
 
 In order to have an approach similar to what is usually done on scRNA-Seq data, we decided to do a UMAP to display the clustering. The function *RunUMAP_cyto* plots the UMAP with the clusters and saves a data frame with the UMAP coordinates and the cluster associated to each cell.
 
-```{r plot_umap}
-plt_umap <- RunUMAP_cyto(df_KNN)
+```{r plot_umap, fig.height=6, fig.width=8}
+plt_umap <- RunUMAP_cyto(df_KNN, df_pca)
 plt_umap
 ```
 
@@ -218,22 +235,25 @@ On this graph, we can see some cluster.
 
 To have a better overview of the clusters, we can plot a heatmap. The *heatmap_cyto* function takes the as argument and plot the heatmap of mean expression of each marker in each cluster.
 
-```{r heatmap_cluster}
+```{r heatmap_cluster, echo=TRUE, error=FALSE, message=FALSE, warning=FALSE}
 heatmap_cyto(df_KNN)
 ```
 
 Let's also plot the expression of a specific marker on the UMAP representation. Here we choose to plot the expression of marker "FSC-H".
 
 ```{r plt_markers}
-plt_marker <- marker_expression(df_KNN,"FSC-H",df_umap)
+plt_marker <- marker_expression(df_KNN,"FSC-H",umap_m)
 plt_marker
+```
+
+```{r all_expression_markers, fig.height=11, fig.width=16, fig.align='center'}
+myplots <- all_markers_expression(df_KNN,umap_m)
 ```
 
 Faudrait se rendre compte comment sont répartie toutes les cellules dans chaque cluster =\> counts!
 
 ```{r count_plot}
-df_KNN %>% group_by(cluster_id) %>% summarise(total_count=n(), .groups = 'drop') %>% ggplot(aes(x = cluster_id, y = total_count)) + geom_bar(stat = "identity", color = 'Orange') 
-
+df_KNN %>% group_by(cluster_id) %>% summarise(total_count=n(), .groups = 'drop') %>% ggplot(aes(x = cluster_id, y = total_count), color='orange') + geom_bar(stat = "identity") 
 ```
 
 ## Differential expression and identification of markers
@@ -246,8 +266,62 @@ The function *findMarkers_cyto* performs Wilcoxon tests, which are non-parametri
 
 ```{r find_markers}
 df_wilcox <- findMarkers_cyto(df_KNN)
+
+# Let's choose some threshold to filter this dataframe:
+threshold_pca <- 0.05
+threshold_FC  <- 2.5
+
+test <- df_wilcox %>% dplyr::filter(adj_pvalue < threshold_pca & FC > threshold_FC )
+test
+```
+
+```{r wriite_csv}
+write.csv(test, file = 'df_wilcox_pca.csv')
 ```
 
 ## Biological interpretation
 
 With the top expressed markers for each cluster, you can identified the cellular type of each cluster. No functions are able to do that now, be can be implemented later on.
+
+```{r tumor}
+file_name_tumor = "VP4_Tumor_CD45+ cells.fcs"
+path_tumor <- file.path("./data", file_name_tumor)
+tumor_sample = read.flowSet(path_tumor, column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
+
+
+# Quality control
+fsc_peaco_QC_t <- peaco_QC(tumor_sample, file_name_tumor)
+exp_matr_t <- fsc_peaco_QC_t@frames[[file_name_tumor]]@exprs
+
+# Normalisation
+exp_matr_cpm_t <- norm_cyto(exp_matr_t)
+
+
+```
+
+```{r tumor2}
+#Perform PCA
+PCA(exp_matr_cpm_t, 7, 19)
+df_pca_t <- choose_dims_PCA(pca, 5)
+
+#Perform Clustering
+df_KNN_t <- clustering_cyto(df_pca_t,exp_matr_cpm_t)
+
+#Clustering Visualization
+plt_umap_t <- RunUMAP_cyto(df_KNN_t, df_pca_t)
+plt_umap_t
+
+#Visualize markers in clusters
+# heatmap_cyto(df_KNN_t)
+
+#Perform differential analysis
+test_tumor <- findMarkers_cyto(df_KNN_t)
+write.csv(test_tumor, file = 'df_wilcox_tumor.csv')
+```
+
+
+```{r sessioninfos}
+sessionInfo()
+```
+
+![](images/macha_tea_icon.png){width="50"}

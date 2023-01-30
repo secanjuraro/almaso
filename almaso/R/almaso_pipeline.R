@@ -33,13 +33,8 @@
 ######## LOAD DATA #########
 ############################
 
-file_name <- "Vp6_Control_CD45+ cells.fcs"
-path <- file.path("data", file_name); path
-immune_control = read.FCS(path, column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
-fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
-
-# file_name <- "cd45pos2_control_CD45+.fcs"
-# path <- file.path("Vrais_donnees_cyto", file_name); path
+# file_name <- "Vp6_Control_CD45+ cells.fcs"
+# path <- file.path("data", file_name); path
 # immune_control = read.FCS(path, column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
 # fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
 
@@ -184,6 +179,11 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
       return(plot_umap)
     }
 
+    #######################################
+    ####### DIFFERENTIAL EXPRESSION #######
+    #######################################
+
+
     #' @title Find the expression of all markers within a cluster
     #' @name findMarkers_cyto
     #' @description Computes a Wilcox test to compare the expression of all markers across all clusters. A p-value and a log2 FC are associated to each comparison
@@ -191,35 +191,35 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
     #' @return A data frame with all the comparisons made associated to a p value and a FC
 
     findMarkers_cyto <- function(df_KNN) {
-      df_W <<- df_KNN %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% arrange(as.numeric(cluster_id)) #Get data frame for the wilcox test. Delete columns corresponding to the FSC and SSC
-      df_FC <<- df_W %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% summarise(across(everything(),mean)) %>% select(-cluster_id) #Get data frame to calculate the fold change (average expression level for each luster)
+      df_W <- df_KNN %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% arrange(as.numeric(cluster_id)) #Get data frame for the wilcox test. Delete columns corresponding to the FSC and SSC
+      markers <- colnames(df_KNN %>% select(-(contains("FSC") | contains("SSC"))) %>% select(-cluster_id))  # Get markers from df_FC (does not contain column cluster_id)
+      df_FC <- df_W %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% summarise(across(everything(),mean)) #%>% select(-cluster_id) #Get data frame to calculate the fold change (average expression level for each luster)
 
-      markers <- colnames(df_FC) # Get markers from df_FC (does not contain column cluster_id)
       clusters_id <- order(levels(factor(df_W$cluster_id))) # Get the number of clusters and order them
 
-      df_markers <- data.frame(marker = character(),cluster_a = numeric(), cluster_b = numeric(), pvalue = numeric(),FC = numeric() ) #Initialize dataframe with all information regarding the expression of markers in the clusters
-      for(i in markers){   # i browses each marker
-        for(j in 1:(length(clusters_id)-1)){    # j browses each cluster
-          for(k in (j+1):length(clusters_id)){  # once a cluster chosen with j, k browses the rest of the clusters. We do not compare a marker within the same cluster
-            cluster_a <- df_W %>% filter(cluster_id == j) %>% pull(i)   # get expression values of i for j
-            cluster_b <- df_W %>% filter(cluster_id == k) %>% pull(i)   # get expression values of i for k
-            pvalue <- wilcox.test(cluster_a,cluster_b)$p.value          # get pvalue from wilcox test
-            fold_change <- log2(abs((df_FC[[i]][j])/(df_FC[[i]][[k]]))) # calculate log2 fold change with the average expression of i in j and k
-            info <- c(i,j,k,pvalue,fold_change)  # create vector with all informations
-            df_markers <- rbind(df_markers,info)   # fill the df_Wilcox
+      df_markers <- data.frame(marker = character(),cluster = numeric(),pvalue = numeric(),FC = numeric() ) #Initialize dataframe with all information regarding the expression of markers in the clusters
+
+      for(i in markers){ # i browses each marker
+        for(j in 1:(length(clusters_id))){ # j browses each cluster
+          df_W_b <- df_W %>% dplyr::filter(cluster_id != i) # filtered data frame without the cluster selected by i for the wilcoxon test
+          df_FC_b <- df_FC %>%  dplyr::filter(cluster_id!=i) %>% select(-cluster_id) %>% summarise(across(everything(),mean)) # filtered data frame without the cluster selected by i for the fold change
+          cluster_a <- df_W %>% dplyr::filter(cluster_id == j) %>% pull(i) # get expression values of i for j
+          cluster_b <- numeric() # create vector to keep the expressions values of i for all clusters except i
+          for(k in 1:(length(clusters_id)-1)){ # k browses all clusters different from i
+            cluster_b <- append(cluster_b,df_W_b %>% dplyr::filter(cluster_id == k ) %>% pull(i)) # get expression values of i for the rest of clusters
           } # close k loop
-        } #close j loop
-      } #close i loop
-
-      colnames(df_markers) <- c("marker", "cluster_a","cluster_b","p_value","FC")
+        pvalue <- wilcox.test(cluster_a,cluster_b)$p.value  # get pvalue from wilcox test
+        fold_change <- log2(abs(df_FC[[i]][j])/df_FC_b[[i]])  # calculate log2 fold change with the average expression of i in j and the rest of clusters
+        info <- c(i,j,pvalue,fold_change)
+        df_markers <- rbind(df_markers,info)
+        } # close j loop
+      } # close i loop
+      colnames(df_markers) <- c("marker", "cluster","p_value","FC")
       df_markers$adj_pvalue <- p.adjust(df_markers$p_value,"BH") #adjust p_value
-      df_markers$cluster_a <- as.numeric(df_markers$cluster_a)
-      df_markers$cluster_b <- as.numeric(df_markers$cluster_b)
-      df_markers <- df_markers %>% group_by(cluster_a,marker) %>% arrange(adj_pvalue,.by_group = TRUE)  #arrange dataframe by pvalue
-
+      df_markers$cluster <- as.numeric(df_markers$cluster)
+      df_markers <- df_markers %>% group_by(cluster,marker) %>% arrange(adj_pvalue,.by_group = TRUE)  #arrange dataframe by pvalue
 
       return(df_markers)
-
     }
 
     ############################
@@ -296,46 +296,46 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
 #######################
 
 
-#Compensation with flowCore, if data not alraedy compensated
-if(exists("spillover(immune_control)")){
-  fs_immune_control <- compensate(fs_immune_control, spillover(immune_control))
-}
-
-# Quality control
-fsc_peaco_QC <- peaco_QC(fs_immune_control, file_name)
-exp_matr <- fsc_peaco_QC@frames[[file_name]]@exprs
-head(exp_matr)
-
-# Normalisation
-exp_matr_cpm <- norm_cyto(exp_matr)
-head(exp_matr_cpm)
-
-#Perform PCA
-PCA(exp_matr_cpm, 7, 19)
-df_pca <- choose_dims_PCA(pca, 5)
-
-#PCA Visualisation
-summary(pca)
-ggplot(data = df_pca, aes_string(x = "PC1", y = "PC2")) + geom_point(size = 3, color = 'orange')
-fviz_contrib(pca, "var")
-
-#Perform Clustering
-df_KNN <- clustering_cyto(df_pca,exp_matr_cpm)
-
-#Clustering Visualization
-plt_umap <- RunUMAP_cyto(df_KNN, df_pca)
-plt_umap
-
-#Visualize markers in clusters
-heatmap_cyto(df_KNN)
-
-plt_marker <- marker_expression(df_KNN,"FSC-H",umap_m)
-plt_marker
-
-myplots <- all_markers_expression(df_KNN,umap_m)
-
-#Perform differential analysis
-df_wilcox <- findMarkers_cyto(df_KNN)
-
-test1 <- df_wilcox %>% filter(adj_pvalue < 0.05 & FC > 2.5)
-write.csv(test1, file = 'df_wilcox_pca.csv')
+# #Compensation with flowCore, if data not alraedy compensated
+# if(exists("spillover(immune_control)")){
+#   fs_immune_control <- compensate(fs_immune_control, spillover(immune_control))
+# }
+#
+# # Quality control
+# fsc_peaco_QC <- peaco_QC(fs_immune_control, file_name)
+# exp_matr <- fsc_peaco_QC@frames[[file_name]]@exprs
+# head(exp_matr)
+#
+# # Normalisation
+# exp_matr_cpm <- norm_cyto(exp_matr)
+# head(exp_matr_cpm)
+#
+# #Perform PCA
+# PCA(exp_matr_cpm, 7, 19)
+# df_pca <- choose_dims_PCA(pca, 5)
+#
+# #PCA Visualisation
+# summary(pca)
+# ggplot(data = df_pca, aes_string(x = "PC1", y = "PC2")) + geom_point(size = 3, color = 'orange')
+# fviz_contrib(pca, "var")
+#
+# #Perform Clustering
+# df_KNN <- clustering_cyto(df_pca,exp_matr_cpm)
+#
+# #Clustering Visualization
+# plt_umap <- RunUMAP_cyto(df_KNN, df_pca)
+# plt_umap
+#
+# #Visualize markers in clusters
+# heatmap_cyto(df_KNN)
+#
+# plt_marker <- marker_expression(df_KNN,"FSC-H",umap_m)
+# plt_marker
+#
+# myplots <- all_markers_expression(df_KNN,umap_m)
+#
+# #Perform differential analysis
+# df_wilcox <- findMarkers_cyto(df_KNN)
+#
+# test1 <- df_wilcox %>% dplyr::filter(adj_pvalue < 0.05 & FC > 2.5)
+# write.csv(test1, file = 'df_wilcox_pca.csv')
