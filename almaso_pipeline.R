@@ -177,8 +177,8 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
   RunUMAP_cyto <- function(df_KNN, df_pca){
     umap_m <<-as.data.frame(umap(df_pca))
     colnames(umap_m) <- c("UMAP1","UMAP2")
-    umap_m$cluster <- df_KNN$cluster_id
-    plot_umap <- ggplot(umap_m, aes(UMAP1, UMAP2, colour = cluster)) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot")
+    umap_m$cluster <- as.numeric(f_KNN$cluster_id)
+    plot_umap <- ggplot(umap_m, aes(UMAP1, UMAP2, colour = factor(cluster))) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot")
     
     umap_m <<- umap_m
     return(plot_umap)
@@ -274,9 +274,23 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
     heatmap_cyto <- function(df_clust) {
       if ('cluster_id' %in% colnames(df_clust)){
         #Create new data frame with mean expression of markers by cluster
-        df_clust_mean <- df_clust %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% summarise(across(everything(), mean, na.rm=TRUE))  %>% remove_rownames %>% column_to_rownames(var="cluster_id")
-        #Create heatmap
-        heat <- heatmap(as.matrix(df_clust_mean),Rowv = NA, Colv = NA, xlab = "Marqueur", ylab="Cluster",verbose = TRUE)
+        df_clust_mean <- df_clust %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% summarise(across(everything(), mean, na.rm=TRUE))  #%>% remove_rownames %>% column_to_rownames(var="cluster_id")
+  
+        #Scale values 
+        for( i in colnames(df_clust_mean %>% select(-c(cluster_id)))){
+          df_clust_mean[[i]] <- scale(df_clust_mean[[i]])
+        }
+        
+        #Change marker names to antigene names
+        colnames(df_clust_mean)[2:14] <- antigene_list
+        
+        #Melt dataframe to use ggplot
+        melt_df_clust <<- reshape2::melt(df_clust_mean) 
+        colnames(melt_df_clust) <- c("cluster","antigene","value")
+        melt_df_clust$cluster <- as.numeric(melt_df_clust$cluster)
+        
+        #Heatmap with ggplot
+        heat <- ggplot(melt_df_clust,aes(factor(cluster),antigene)) + geom_tile(aes(fill=value)) + scale_fill_gradient(low = "gold",high= "red") + ggtitle("Antigene expression within each cluster")
       }else {
         stop('Clusters  associated to each cells must be contained in column "clusters_id')
       }
