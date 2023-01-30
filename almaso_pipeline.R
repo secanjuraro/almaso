@@ -37,6 +37,8 @@ file_name <- "Vp6_Control_CD45+ cells.fcs"
 path <- file.path("data", file_name); path
 immune_control = read.FCS(path, column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
 fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
+fs_immune_control[[1]]$desc
+fs_immune_control@frames[["Vp6_Control_CD45+ cells.fcs"]]@parameters@data[["desc"]]
 
 # file_name <- "cd45pos2_control_CD45+.fcs"
 # path <- file.path("Vrais_donnees_cyto", file_name); path
@@ -342,5 +344,13 @@ myplots <- all_markers_expression(df_KNN,umap_m)
 #Perform differential analysis
 df_wilcox <- findMarkers_cyto(df_KNN)
 
+antigene_list <- as.vector(fs_immune_control@frames[["Vp6_Control_CD45+ cells.fcs"]]@parameters@data[["desc"]])
+antigene_list <- antigene_list[7:length(antigene_list)]
+antigene <- rep(antigene_list, length(unique(as.numeric(df_KNN$cluster_id))))
+df_wilcox <- cbind(df_wilcox, antigene)
+colnames(df_wilcox)[6] <- "Antigene"
+
 test1 <- df_wilcox %>% filter(adj_pvalue < 0.05 & FC > 2.5)
 write.csv(test1, file = 'df_wilcox_pca.csv')
+
+
