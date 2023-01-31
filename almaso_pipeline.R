@@ -303,22 +303,40 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
     }
 
 
-    #' @title Visualize the expression of a marker
+    #' @title Visualize the expression of a marker stained for a particular antigene or structural marker
     #' @name marker_expression
     #' @description Plots the UMAP with a color gradient that correspond to the expression of a marker
     #' @param df_SNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
-    #' @param protein  A string with the name of the protein
-    #' @param marker  A string with the name of the fluorescent marker that stained for the protein
+    #' @param marker_name  A string with the name of the marker or antigene we want to plot 
     #' @param df_umap A dataframe with the coordinates of the umap for all cells
+    #' @param fsc a flowSet
+    #' @param file_name name of the flowSet
     #' @return A plot of the UMAP with the cells coloured by clusters
 
-    marker_expression <- function(df_SNN,protein,marker,umap_m){
-      marker <- paste0(marker)
-      protein <- paste0(protein)
-      marker_value <- df_SNN[[marker]]
+    marker_expression <- function(df_SNN, marker_name, umap_m, fsc, file_name){
+      antigene_name <- marker_name  # store the name of marker or antigene observed for the title
+      
+      antigene_list <- as.vector(fsc@frames[[file_name]]@parameters@data[["desc"]])# we take the antigene names column stored in the "desc" variable
+      antigene_list <-antigene_list[7:length(antigene_list)] # Only the columns 7 to 19 have antigenes associated
+    
+      if(marker_name %in% antigene_list){  # if marker_name is an antigene name, we have to get the marker equivalent
+        mark <- as.data.frame(colnames(df_SNN)) # dataframe of all markers names
+        colnames(mark)<- "Marker"   # rename column dataframe "Marker"
+        mark <- mark %>% dplyr::filter(!(grepl('FSC|SSC|Original|cluster', Marker))); mark  # only take the fluorescent markers
+        
+        mark <- cbind(mark, antigene_list) # bind both columns together (markers names and antigenes names)
+        colnames(mark)[2] <- "Antigene" # rename the second column as "Antigene"
+        
+        marker_name <- mark %>% dplyr::filter(Antigene == antigene_name ) %>% select(Marker) # select the marker name associated to the antigene name in input
+      }
+      
+      marker <- paste0(marker_name)
+      marker_value <- df_SNN[[marker]]  # select the column with all values of this specific marker expression
       mid<-mean(marker_value)
-      title <- paste(" Expression of ", protein, sep ="")
-      m <- as.numeric(marker_value)
+      
+      title <- paste(" Expression of ", antigene_name, sep ="") 
+      m <- as.numeric(marker_value) # for the coloration of ggplot
+      
       plot_marker <- ggplot(umap_m, aes(UMAP1,UMAP2, colour = m )) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = title ) + scale_color_gradient2(midpoint=mid, low="blue", mid="white", high="red", space ="Lab" )
       return(plot_marker)
 
@@ -335,21 +353,9 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
 
     all_markers_expression <- function(df_SNN,umap_m, fsc, file_name){
       myplots <- list()  # new empty list
-
-      mark <- as.data.frame(colnames(df_SNN)) # dataframe of all markers names
-      colnames(mark)<- "Marker"
-      mark <- mark %>% dplyr::filter(!(grepl('FSC|SSC|Original|cluster', Marker))); mark  # we only take the fluorescent markers
-
-      antigene_list <- as.vector(fsc@frames[[file_name]]@parameters@data[["desc"]])# we take the gene names column stored in the "desc" variable
-      antigene_list <-antigene_list[7:length(antigene_list)] # Only the columns 7 to 19 have gene associated
-
-      mark <- cbind(mark, antigene_list) # we bind both columns together
-      colnames(mark)[2] <- "Antigene"
-
-      for (i in antigene_list) {
-        m  <- mark %>% dplyr::filter(Antigene == i ) %>% select(Marker) # we select the marker name associated to antigene i
-        m  <- paste0(m)
-        p1 <- marker_expression(df_SNN, i, m, umap_m)  # plot the expression marker map for the marker i
+      markers <- colnames(df_KNN)[7:19]  # we only take markers columns
+      for (i in markers) {
+        p1 <- marker_expression(df_SNN, i, umap_m, fsc, file_name)  # plot the expression marker map for the marker i
         myplots[[i]] <- p1  # add each plot into plot list
       }
       grid.arrange(grobs = myplots, ncol = 5) # plot all the plots all together
@@ -399,7 +405,8 @@ plt_umap
 ## Heatmap:
 heatmap_cyto(df_SNN,fs_immune_control,file_name)
 ## Visualization of 1 marker on the UMAP: FJComp-APC-A <=> SiglecH
-plt_marker <- marker_expression(df_SNN,"SiglecH","FJComp-APC-A",umap_m); plt_marker
+plt_marker <- marker_expression(df_SNN,"SiglecH",umap_m, fs_immune_control,file_name); plt_marker
+plt_marker <- marker_expression(df_SNN,"FSC-A",umap_m, fs_immune_control,file_name); plt_marker
 ## Visualization of all markers on separated UMAP:
 myplots <- all_markers_expression(df_SNN,umap_m,fs_immune_control,file_name)
 
