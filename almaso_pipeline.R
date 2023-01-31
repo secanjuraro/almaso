@@ -353,7 +353,7 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
 
     all_markers_expression <- function(df_SNN,umap_m, fsc, file_name){
       myplots <- list()  # new empty list
-      markers <- colnames(df_KNN)[7:19]  # we only take markers columns
+      markers <- colnames(df_SNN)[7:19]  # we only take markers columns
       for (i in markers) {
         p1 <- marker_expression(df_SNN, i, umap_m, fsc, file_name)  # plot the expression marker map for the marker i
         myplots[[i]] <- p1  # add each plot into plot list
