@@ -143,41 +143,41 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
   
   #' @title Cluster cells by markers
   #' @name clustering_cyto
-  #' @description Computes a KNN graph and the Louvain method to find cells clusters
+  #' @description Computes a SNN graph and the Louvain method to find cells clusters
   #' @param expr_df a data frame that corresponds to the expression matrix of an FCS file
   #' @param resolution resolution parameter for finding the clusters
   #' @return A data frame that corresponds to the expression matrix with a cluster number associated to each cell
   
   clustering_cyto <- function(df_pca,expr_df, resolution) {
-    KNN_graph <- bluster::makeSNNGraph(df_pca) # Build the KNN graph for community detection
-    louvain_clusters <- igraph::cluster_louvain(KNN_graph, resolution = 0.5) # Implementation of the Louvain method to find clusters
+    SNN_graph <- bluster::makeSNNGraph(df_pca) # Build the SNN graph for community detection
+    louvain_clusters <- igraph::cluster_louvain(SNN_graph, resolution = 0.5) # Implementation of the Louvain method to find clusters
     clusters_id <<- communities(louvain_clusters) # Get the cluster for each cell
     
-    df_KNN <- data.frame(cell = numeric(),cluster = numeric()) # dataframe with each cell associated to a cluster
+    df_SNN <- data.frame(cell = numeric(),cluster = numeric()) # dataframe with each cell associated to a cluster
     
     for(i in names(clusters_id)){
       temp_df <- as.data.frame(clusters_id[i]) # get cells in each cluster as a dataframe
       temp_df$cluster_id <- i # associate each cell to the corresponding cluster
       colnames(temp_df) <- c("cell", "cluster_id")
-      df_KNN <- rbind(df_KNN,temp_df)  # bind each temporary dataframe to the previous cluster one
+      df_SNN <- rbind(df_SNN,temp_df)  # bind each temporary dataframe to the previous cluster one
     }
-    clusters <- df_KNN %>% arrange(cell) %>% select(cluster_id) # order dataframe by cells and get clusters
-    df_KNN <- cbind(expr_df,clusters)   # bind the cluster column for all cells to expression dataframe
+    clusters <- df_SNN %>% arrange(cell) %>% select(cluster_id) # order dataframe by cells and get clusters
+    df_SNN <- cbind(expr_df,clusters)   # bind the cluster column for all cells to expression dataframe
     
-    return(df_KNN)
+    return(df_SNN)
   }
   
   #' @title Run UMAP
   #' @name RunUMAP_cyto
   #' @description Plots the UMAP with the clusters and saves a data frame with the UMAP coordinates and the cluster associated to each cell
-  #' @param df_KNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
+  #' @param df_SNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
   #' @return A plot of the UMAP with the cells coloured by clusters
   
   
-  RunUMAP_cyto <- function(df_KNN, df_pca){
+  RunUMAP_cyto <- function(df_SNN, df_pca){
     umap_m <<-as.data.frame(umap(df_pca))
     colnames(umap_m) <- c("UMAP1","UMAP2")
-    umap_m$cluster <- as.numeric(f_KNN$cluster_id)
+    umap_m$cluster <- as.numeric(df_SNN$cluster_id)
     plot_umap <- ggplot(umap_m, aes(UMAP1, UMAP2, colour = factor(cluster))) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot")
     
     umap_m <<- umap_m
@@ -192,12 +192,12 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
   #' @title Find the expression of all markers within a cluster
   #' @name findMarkers_cyto
   #' @description Computes a Wilcox test to compare the expression of all markers across all clusters. A p-value and a log2 FC are associated to each comparison 
-  #' @param df_KNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
+  #' @param df_SNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
   #' @return A data frame with all the comparisons made associated to a p value and a FC 
   
-  findMarkers_cyto <- function(df_KNN) {
-    df_W <- df_KNN %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% arrange(as.numeric(cluster_id)) #Get data frame for the wilcox test. Delete columns corresponding to the FSC and SSC
-    markers <- colnames(df_KNN %>% select(-(contains("FSC") | contains("SSC"))) %>% select(-cluster_id))  # Get markers from df_FC (does not contain column cluster_id)
+  findMarkers_cyto <- function(df_SNN) {
+    df_W <- df_SNN %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% arrange(as.numeric(cluster_id)) #Get data frame for the wilcox test. Delete columns corresponding to the FSC and SSC
+    markers <- colnames(df_SNN %>% select(-(contains("FSC") | contains("SSC"))) %>% select(-cluster_id))  # Get markers from df_FC (does not contain column cluster_id)
     df_FC <- df_W %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% summarise(across(everything(),mean)) #%>% select(-cluster_id) #Get data frame to calculate the fold change (average expression level for each luster)
     
     clusters_id <- order(levels(factor(df_W$cluster_id))) # Get the number of clusters and order them 
@@ -249,7 +249,7 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
     mark <- mark %>% arrange(Marker)
     antigene_sort <- unname(unlist(as.data.frame(mark['Antigene'])))
     
-    antigene <- rep(antigene_sort, length(unique(as.numeric(df_KNN$cluster_id))))
+    antigene <- rep(antigene_sort, length(unique(as.numeric(df_SNN$cluster_id))))
     df_wilcox_antigene <- cbind(df_wilcox, antigene)
     colnames(df_wilcox_antigene)[6] <- "Antigene"
     
@@ -268,10 +268,12 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
     #' @name  heatmap_cyto
     #' @description Build heatmap of mean expression of each marker in each cluster
     #' @param df_clust a data frame containing the expression matrix and the clusters associated to each cell in the column clusters_id
+    #' @param fsc a flowSet
+    #' @param file_name name of the flowSet
     #' @return A heatmap containing the mean expression of each marker in each cluster
     
     
-    heatmap_cyto <- function(df_clust) {
+    heatmap_cyto <- function(df_clust, fsc, file_name) {
       if ('cluster_id' %in% colnames(df_clust)){
         #Create new data frame with mean expression of markers by cluster
         df_clust_mean <- df_clust %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% summarise(across(everything(), mean, na.rm=TRUE))  #%>% remove_rownames %>% column_to_rownames(var="cluster_id")
@@ -282,6 +284,8 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
         }
         
         #Change marker names to antigene names
+        antigene_list <- as.vector(fsc@frames[[file_name]]@parameters@data[["desc"]]) # we take the gene names column stored in the "desc" variable
+        antigene_list <-antigene_list[7:length(antigene_list)] # Only the columns 7 to 19 have gene associated
         colnames(df_clust_mean)[2:14] <- antigene_list
         
         #Melt dataframe to use ggplot
@@ -301,16 +305,18 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
     #' @title Visualize the expression of a marker
     #' @name marker_expression
     #' @description Plots the UMAP with a color gradient that correspond to the expression of a marker
-    #' @param df_KNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
-    #' @param marker  A string with the name of the marker
+    #' @param df_SNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
+    #' @param protein  A string with the name of the protein
+    #' @param marker  A string with the name of the fluorescent marker that stained for the protein
     #' @param df_umap A dataframe with the coordinates of the umap for all cells
     #' @return A plot of the UMAP with the cells coloured by clusters
     
-    marker_expression <- function(df_KNN,marker,umap_m){
+    marker_expression <- function(df_SNN,protein,marker,umap_m){
       marker <- paste0(marker)
-      marker_value <- df_KNN[[marker]]
+      protein <- paste0(protein)
+      marker_value <- df_SNN[[marker]]
       mid<-mean(marker_value)
-      title <- paste(" Expression of ", marker, sep ="")
+      title <- paste(" Expression of ", protein, sep ="")
       m <- as.numeric(marker_value)
       plot_marker <- ggplot(umap_m, aes(UMAP1,UMAP2, colour = m )) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = title ) + scale_color_gradient2(midpoint=mid, low="blue", mid="white", high="red", space ="Lab" )
       return(plot_marker)
@@ -319,16 +325,30 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
     
     #' @title Visualize the expression of all markers on different plots
     #' @name all_markers_expression
-    #' @description Use the marker_expression function on each marker and plot all exression maps
-    #' @param df_KNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
+    #' @description Use the marker_expression function on each marker and plot all expression maps
+    #' @param df_SNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
     #' @param df_umap A dataframe with the coordinates of the umap for all cells
+    #' @param fsc a flowSet
+    #' @param file_name name of the flowSet
     #' @return A list of ggplots
     
-    all_markers_expression <- function(df_KNN,umap_m){
+    all_markers_expression <- function(df_SNN,umap_m, fsc, file_name){
       myplots <- list()  # new empty list
-      markers <- colnames(df_KNN)[7:19]  # we only take markers columns
-      for (i in markers) {
-        p1 <- marker_expression(df_KNN, i, umap_m)  # plot the expression marker map for the marker i
+      
+      mark <- as.data.frame(colnames(df_SNN)) # dataframe of all markers names
+      colnames(mark)<- "Marker"
+      mark <- mark %>% filter(!(grepl('FSC|SSC|Original|cluster', Marker))); mark  # we only take the fluorescent markers
+      
+      antigene_list <- as.vector(fsc@frames[[file_name]]@parameters@data[["desc"]])# we take the gene names column stored in the "desc" variable
+      antigene_list <-antigene_list[7:length(antigene_list)] # Only the columns 7 to 19 have gene associated
+      
+      mark <- cbind(mark, antigene_list) # we bind both columns together
+      colnames(mark)[2] <- "Antigene"
+      
+      for (i in antigene_list) {
+        m  <- mark %>% filter(Antigene == i ) %>% select(Marker) # we select the marker name associated to antigene i 
+        m  <- paste0(m)
+        p1 <- marker_expression(df_SNN, i, m, umap_m)  # plot the expression marker map for the marker i
         myplots[[i]] <- p1  # add each plot into plot list
       }
       grid.arrange(grobs = myplots, ncol = 5) # plot all the plots all together
@@ -345,7 +365,7 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
 #######################
 
 
-#Compensation with flowCore, if data not alraedy compensated
+# Compensation with flowCore, if data not alraedy compensated
 if(exists("spillover(immune_control)")){
   fs_immune_control <- compensate(fs_immune_control, spillover(immune_control))
 }
@@ -358,36 +378,34 @@ exp_matr <- fsc_peaco_QC@frames[[file_name]]@exprs
 exp_matr_cpm <- norm_cyto(exp_matr)
 head(exp_matr_cpm)
 
-#Perform PCA
+# Perform PCA
 PCA(exp_matr_cpm, 7, 19)
 df_pca <- choose_dims_PCA(pca, 5)
 
-#PCA Visualisation
+# PCA Visualisation
 summary(pca)
 ggplot(data = df_pca, aes_string(x = "PC1", y = "PC2")) + geom_point(size = 3, color = 'orange')
 fviz_contrib(pca, "var")
 
-#Perform Clustering
-df_KNN <- clustering_cyto(df_pca,exp_matr_cpm)
+# Perform Clustering
+df_SNN <- clustering_cyto(df_pca,exp_matr_cpm)
 
-#Clustering Visualization
-plt_umap <- RunUMAP_cyto(df_KNN, df_pca)
+# Clustering Visualization
+plt_umap <- RunUMAP_cyto(df_SNN, df_pca)
 plt_umap
 
-#Visualize markers in clusters
-heatmap_cyto(df_KNN)
+# Visualize markers in clusters
+## Heatmap:
+heatmap_cyto(df_SNN,fs_immune_control,file_name)
+## Visualization of 1 marker on the UMAP: FJComp-APC-A <=> SiglecH
+plt_marker <- marker_expression(df_SNN,"SiglecH","FJComp-APC-A",umap_m); plt_marker
+## Visualization of all markers on separated UMAP:
+myplots <- all_markers_expression(df_SNN,umap_m,fs_immune_control,file_name)
 
-plt_marker <- marker_expression(df_KNN,"FSC-H",umap_m)
-
-myplots <- all_markers_expression(df_KNN,umap_m)
-
-#Perform differential analysis
-df_wilcox <- findMarkers_cyto(df_KNN)
+# Perform differential analysis
+df_wilcox <- findMarkers_cyto(df_SNN)
 df_wilcox <- add_ProtMarkerNames(exp_matr, df_wilcox, fs_immune_control)
 head(df_wilcox)
 
-
 test1 <- df_wilcox %>% filter(adj_pvalue < 0.05 & FC > 0)
 write.csv(test1, file = 'df_wilcox_pca.csv')
-
-
