@@ -11,11 +11,6 @@ expression_matrix <- ReadMtx(
 head(expression_matrix)
 seurat_object <- CreateSeuratObject(counts = expression_matrix)
 
-exp_mat <- GetAssayData(object = seurat_object, slot = "counts")
-seurat_df<- as.data.frame(exp_mat)
-
-seurat_object$nCount_RNA
-
 ##Quality control
 
 seurat_object[["percent.mt"]] <- PercentageFeatureSet(seurat_object, pattern = "^MT-")
@@ -65,21 +60,6 @@ metadata %>%
   geom_vline(xintercept = 12)
 
 
-metadata %>%
-  ggplot(aes(x=log10GenesPerUMI)) +
-  geom_density(alpha = 0.2) +
-  scale_x_log10() +
-  theme_classic() +
-  geom_vline(xintercept = 0.8)
-
-
-metadata %>%
-  ggplot(aes(x=percent.erythro)) +
-  geom_density(alpha = 0.2) +
-  scale_x_log10() +
-  theme_classic()
-
-
 #Sélection des cellules vivantes et avec un compte suffisant
 seurat_object <- subset(seurat_object, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
 
@@ -92,16 +72,14 @@ seurat_object <- FindVariableFeatures(seurat_object, selection.method = "vst", n
 top10 <- head(VariableFeatures(seurat_object), 10)
 plot1 <- VariableFeaturePlot(seurat_object)
 plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
-plot1
-plot2
+plot1+plot2
 
 #Scaling
 all.genes <- rownames(seurat_object)
 seurat_object <- ScaleData(seurat_object, features = all.genes)
 
-GetAssayData(object = seurat_object, slot = "counts")
-
-
+#Get expression matrix
+exp_mat <- GetAssayData(object = seurat_object, slot = "counts")
 
 #Réduction des dimensions par PCA
 seurat_object <- RunPCA(seurat_object, features = VariableFeatures(object = seurat_object))
@@ -109,10 +87,7 @@ print(seurat_object[["pca"]], dims = 1:5, nfeatures = 5)
 DimPlot(seurat_object, reduction = "pca")
 DimHeatmap(seurat_object, dims = 1, cells = 500, balanced = TRUE)
 
-#?
-seurat_object <- JackStraw(seurat_object, num.replicate = 100)
-seurat_object <- ScoreJackStraw(seurat_object, dims = 1:20)
-JackStrawPlot(seurat_object, dims = 1:15)
+#Choisir axes PCA
 ElbowPlot(seurat_object)
 
 ## Clustering par UMAP
@@ -123,37 +98,26 @@ head(Idents(seurat_object), 5)
 seurat_object <- RunUMAP(seurat_object, dims = 1:5)
 DimPlot(seurat_object, reduction = "umap")
 
-cluster2.markers <- FindMarkers(seurat_object, ident.1 = 2, min.pct = 0.25)
-head(cluster2.markers, n = 5)
-cluster5.markers <- FindMarkers(seurat_object, ident.1 = 5, ident.2 = c(0, 3), min.pct = 0.25)
-head(cluster5.markers, n = 5)
-
-pbmc.markers <- FindAllMarkers(seurat_object, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-top_mark <- pbmc.markers %>%
+#Find significant markers
+markers <- FindAllMarkers(seurat_object, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+top_mark <- markers %>%
   group_by(cluster) %>%
   slice_max(n = 2, order_by = avg_log2FC)
 
-#VlnPlot(seurat_object, features = c("MS4A1", "CD79A"))
-FeaturePlot(seurat_object, features = c("MS4A1", "GNLY", "CD3E", "CD14", "FCER1A", "FCGR3A", "LYZ", "PPBP",
-                               "CD8A"))
-pbmc.markers %>%
+
+#FeaturePlot(seurat_object, features = c("MS4A1", "GNLY", "CD3E", "CD14", "FCER1A", "FCGR3A", "LYZ", "PPBP","CD8A"))
+markers %>%
   group_by(cluster) %>%
   top_n(n = 10, wt = avg_log2FC) -> top10
 DoHeatmap(seurat_object, features = top10$gene) + NoLegend()
 
-#A voir si on peut vraiment utiliser ces marqueurs pour ce dataset
+#assigner manuellement les noms des clusters en fonction des marqueurs identifiés
+#remplacer dans new.cluster.ids les noms des types cellulaires identifiés
 new.cluster.ids <- c("Naive CD4 T", "CD14+ Mono", "Memory CD4 T", "B", "CD8 T", "FCGR3A+ Mono",
-                     "NK", "DC", "Platelet","Test1", "Test2")
+                     "NK", "DC", "Platelet")
 
-#=> déterminer les marqueurs connus et les assigner manuellement (à partir de la répartition des marqueurs)
 names(new.cluster.ids) <- levels(seurat_object)
 levels(seurat_object)
 seurat_object <- RenameIdents(seurat_object, new.cluster.ids)
 DimPlot(seurat_object, reduction = "umap", label = TRUE, pt.size = 0.5) + NoLegend()
-
-#DEGs
-head(FindMarkers(seurat_object, ident.1 = 1, ident.2 = 2, min.pct = 0.5))
-
-
-
 
