@@ -95,7 +95,7 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
 
   PCA <- function(expr_mat) {
       expr_mat <- expr_mat %>% select(-(contains("FSC") | contains("SSC"))) # Delete columns from FSC and SCC markers 
-      pca <<- prcomp(expr_mat[,first_mark:last_mark], scale = TRUE) # Keep pca in the environment
+      pca <<- prcomp(expr_mat, scale = TRUE) # Keep pca in the environment
       viz <- fviz_eig(pca) # Create visualization
     
     return(viz)
