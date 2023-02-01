@@ -7,7 +7,6 @@ In this repository you will find:
 
 *	A text document *Projet_almaso_recap.pdf* that reports all the packages we tried, and all the choices we made during the development of the pipeline.
 *	A *Pipeline_scRNA-Seq_Seurat.R* file with a basic Seurat pipeline to analyse scRNA-Seq data.
-*     A *scRNA-Seq_data/* repository that contains all the scRNA-Seq files. 
 *	A R project directory named “*Flow_Cytometry_Project_INSA_almaso/*” composed of:
        *	A *renv/* directory : it is a reproducable environment. It stores all packages with the right version. A snapshot of all package version is available in the file *renv.lock*. 
        *	A *almaso_pipeline.R* file that stores all functions composing our pipeline. At the end of the file, a test code is written to run all functions once.
