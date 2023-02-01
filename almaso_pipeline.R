@@ -23,13 +23,6 @@
 }
 
 ############################
-### SET WORKING DIR      ###
-############################
-
-# setwd("~/INSA/BIM 2022-2023/Projet 5BIM/real data")
-
-
-############################
 ######## LOAD DATA #########
 ############################
 
@@ -38,18 +31,11 @@ path <- file.path("data", file_name); path
 immune_control = read.FCS(path, column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
 fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
 
-# file_name <- "cd45pos2_control_CD45+.fcs"
-# path <- file.path("Vrais_donnees_cyto", file_name); path
-# immune_control = read.FCS(path, column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
-# fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
-
-
 {
 
-
-  #################################
-  ######   PRE PROCESSING   #######
-  #################################
+  ############################
+  ###### PRE PROCESSING ######
+  ############################
 
   #' @title Apply PeacoQC analysis to a flowSet
   #' @name peaco_QC
@@ -82,18 +68,16 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
 
   norm_cyto <- function(exp_matr) {
 
-    #Attribute zero to negative values
-    exp_matr[exp_matr <0 ] <- 0
-    #Remove column Original_ID that was added by PeacoQC
-    exp_matr <- as.data.frame(exp_matr) %>% select(-('Original_ID'))
-    #Perform logCPM transformation
-    exp_matr_cpm <- cpm(exp_matr)
+    
+    exp_matr[exp_matr <0 ] <- 0 #Attribute zero to negative values
+    exp_matr <- as.data.frame(exp_matr) %>% select(-('Original_ID'))  #Remove column Original_ID that was added by PeacoQC
+    exp_matr_cpm <- cpm(exp_matr) #Perform logCPM transformation
 
     return(exp_matr_cpm)
   }
 
   ##################################
-  ###### DIMENSION REDUCTION #######
+  #### DIMENSIONALITY REDUCTION ####
   ##################################
 
 
@@ -101,17 +85,13 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
   #' @name PCA
   #' @description Perform PCA on chosen markers to keep reduced number of dimensions
   #' @param expr_mat a matrix or data frame that corresponds to the expression matrix of an FCS file
-  #' @param first_mark a column number of the expression matrix
-  #' @param last_mark a column number of the expression matrix
-  #' @return A prcomp PCA object
+  #' @return A graph showing the variance explained by each axe of the PCA 
 
-  PCA <- function(expr_mat, first_mark, last_mark) {
-    if (first_mark > 0 && last_mark > 0 && first_mark <= dim(expr_mat)[2] && last_mark <= dim(expr_mat)[2]){
-      pca <<- prcomp(expr_mat[,first_mark:last_mark], scale = TRUE) #Keep pca in the environment
-      viz <- fviz_eig(pca) #Create visualization
-    }else{
-      stop("First and last markers numbers do not fit expression matrix dimensions")
-    }
+  PCA <- function(expr_mat) {
+      expr_mat <- expr_mat %>% select(-(contains("FSC") | contains("SSC"))) # Delete columns from FSC and SCC markers 
+      pca <<- prcomp(expr_mat[,first_mark:last_mark], scale = TRUE) # Keep pca in the environment
+      viz <- fviz_eig(pca) # Create visualization
+    
     return(viz)
   }
 
@@ -123,12 +103,10 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
   #' @return A data frame containing the PC axes
 
   choose_dims_PCA <- function(pca, number_axes) {
-    #Create new data frame with 2 PC dimensions
-    pca_df <- data.frame(PC1 = pca$x[, 1], PC2 = pca$x[, 2])
+    pca_df <- data.frame(PC1 = pca$x[, 1], PC2 = pca$x[, 2])   #Create new data frame with 2 PC dimensions
     if (number_axes > 2 && number_axes < dim(pca$rotation)[1]){
-      #Add columns to data frame corresponding to chosen PC axes
-      for (i in (3:number_axes)){
-        pca_df <- cbind(pca_df,PC = pca$x[,i]) #Add columns
+      for (i in (3:number_axes)){   #Add columns to data frame corresponding to chosen PC axes
+        pca_df <- cbind(pca_df,PC = pca$x[,i]) # Add columns
         colnames(pca_df)[i] <- paste0('PC',as.character(i)) #Set column names
       }
     }else{
@@ -144,22 +122,23 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
   #' @title Cluster cells by markers
   #' @name clustering_cyto
   #' @description Computes a SNN graph and the Louvain method to find cells clusters
+  #' @param df_pca A data frame containing the PC axes 
   #' @param expr_df a data frame that corresponds to the expression matrix of an FCS file
   #' @param resolution resolution parameter for finding the clusters
-  #' @return A data frame that corresponds to the expression matrix with a cluster number associated to each cell
+  #' @return A data frame corresponding to the expression matrix with a cluster number associated to each cell
 
-  clustering_cyto <- function(df_pca,expr_df, resolution) {
+  clustering_cyto <- function(df_pca,expr_df, resolution = 0.3) {
     SNN_graph <- bluster::makeSNNGraph(df_pca) # Build the SNN graph for community detection
-    louvain_clusters <- igraph::cluster_louvain(SNN_graph, resolution = 0.5) # Implementation of the Louvain method to find clusters
-    clusters_id <<- communities(louvain_clusters) # Get the cluster for each cell
+    louvain_clusters <- igraph::cluster_louvain(SNN_graph, resolution) # Implementation of the Louvain method to find clusters
+    clusters_id <- communities(louvain_clusters) # Get the cluster for each cell
 
-    df_SNN <- data.frame(cell = numeric(),cluster = numeric()) # dataframe with each cell associated to a cluster
+    df_SNN <- data.frame(cell = numeric(),cluster = numeric()) # Initialize dataframe with each cell associated to a cluster
 
-    for(i in names(clusters_id)){
+    for(i in names(clusters_id)){ # i browses each cluster 
       temp_df <- as.data.frame(clusters_id[i]) # get cells in each cluster as a dataframe
       temp_df$cluster_id <- i # associate each cell to the corresponding cluster
       colnames(temp_df) <- c("cell", "cluster_id")
-      df_SNN <- rbind(df_SNN,temp_df)  # bind each temporary dataframe to the previous cluster one
+      df_SNN <- rbind(df_SNN,temp_df)  # bind each temporary dataframe to the previous cluster's one
     }
     clusters <- df_SNN %>% arrange(cell) %>% select(cluster_id) # order dataframe by cells and get clusters
     df_SNN <- cbind(expr_df,clusters)   # bind the cluster column for all cells to expression dataframe
@@ -169,18 +148,20 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
 
   #' @title Run UMAP
   #' @name RunUMAP_cyto
-  #' @description Plots the UMAP with the clusters and saves a data frame with the UMAP coordinates and the cluster associated to each cell
+  #' @description Plots the UMAP with the clusters and saves a data frame with the UMAP coordinates and the cluster associated to each cell. Saves a UMAP data frame in the global environment 
   #' @param df_SNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
+  #' @param df_pca A data frame containing the PC axes
   #' @return A plot of the UMAP with the cells coloured by clusters
 
-
   RunUMAP_cyto <- function(df_SNN, df_pca){
-    umap_m <<-as.data.frame(umap(df_pca))
-    colnames(umap_m) <- c("UMAP1","UMAP2")
-    umap_m$cluster <- as.numeric(df_SNN$cluster_id)
-    plot_umap <- ggplot(umap_m, aes(UMAP1, UMAP2, colour = factor(cluster))) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot")
-
-    umap_m <<- umap_m
+    umap_m <-as.data.frame(umap(df_pca)) # Create UMAP on the PCA data frame and cast it into a data frame 
+    colnames(umap_m) <- c("UMAP1","UMAP2") 
+    umap_m$cluster <- as.numeric(df_SNN$cluster_id) # Add each cell's cluster as a column to the UMAP dataframe 
+    
+    plot_umap <- ggplot(umap_m, aes(UMAP1, UMAP2, colour = factor(cluster))) +  geom_point() +  labs(x = "UMAP1",y = "UMAP2",subtitle = "UMAP plot") #Plot the UMAP and color cells by cluster
+    
+    umap_m <<- umap_m  # Add the coordinates of the umap with the clusters to the environment. This object is needed for other visualization functions 
+    
     return(plot_umap)
   }
 
@@ -191,7 +172,7 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
 
   #' @title Find the expression of all markers within a cluster
   #' @name findMarkers_cyto
-  #' @description Computes a Wilcox test to compare the expression of all markers across all clusters. A p-value and a log2 FC are associated to each comparison
+  #' @description Computes a Wilcoxon test to compare the expression of each marker across all clusters. A p-value and a log2 FC are associated to each comparison
   #' @param df_SNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
   #' @return A data frame with all the comparisons made associated to a p value and a FC
 
@@ -210,7 +191,7 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
         df_FC_b <- df_FC %>% dplyr::filter(cluster_id!=j) %>% select(-cluster_id) %>% summarise(across(everything(),mean)) # filtered data frame without the cluster selected by j for the fold change
         cluster_a <- df_W %>% dplyr::filter(cluster_id == j) %>% pull(i) # get expression values of i for j
         cluster_b <- numeric() # create vector to keep the expressions values of i for all clusters except i
-        for(k in 1:(length(clusters_id)-1)){ # k browses all clusters different from i
+        for(k in 1:(length(clusters_id)-1)){ # k browses all clusters that are different from i
           cluster_b <- append(cluster_b,df_W_b %>% dplyr::filter(cluster_id == k ) %>% pull(i)) # get expression values of i for the rest of clusters
         } # close k loop
         pvalue <- wilcox.test(cluster_a,cluster_b)$p.value  # get pvalue from wilcox test
@@ -222,7 +203,7 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
     colnames(df_markers) <- c("marker", "cluster","p_value","FC")
     df_markers$adj_pvalue <- p.adjust(df_markers$p_value,"BH") #adjust p_value
     df_markers$cluster <- as.numeric(df_markers$cluster)
-    df_markers <- df_markers %>% group_by(cluster,marker) %>% arrange(adj_pvalue,.by_group = TRUE)  #arrange dataframe by pvalue
+    df_markers <- df_markers %>% group_by(cluster,marker) %>% arrange(adj_pvalue,.by_group = TRUE) #arrange dataframe by pvalue
 
     return(df_markers)
   }
@@ -230,7 +211,7 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
   #' @title Add the name of proteins associated to the markers in alphabetical order
   #' @name add_ProtMarkerNames
   #' @description Get protein names, order by markers in alphabetical order and bind protein names to dataframe obtained after wilcox test
-  #' @param exp_matrix A matrix corresponding to the expression matrix
+  #' @param exp_matr A matrix corresponding to the expression matrix
   #' @param df_wilcox  A data frame returned by the findMarkers_cyto function
   #' @param fsc A flowSet
   #' @param file_name name of the file loaded as flowSet
@@ -262,7 +243,7 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
   ###### VISUALIZATION #######
   ############################
 
-  #Heatmap
+  
     #' @title Make heatmap of marker expression in clusters
     #' @name  heatmap_cyto
     #' @description Build heatmap of mean expression of each marker in each cluster
@@ -275,7 +256,7 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
     heatmap_cyto <- function(df_clust, fsc, file_name) {
       if ('cluster_id' %in% colnames(df_clust)){
         #Create new data frame with mean expression of markers by cluster
-        df_clust_mean <- df_clust %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% summarise(across(everything(), mean, na.rm=TRUE))  #%>% remove_rownames %>% column_to_rownames(var="cluster_id")
+        df_clust_mean <- df_clust %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% summarise(across(everything(), mean, na.rm=TRUE))  
 
         #Scale values
         df_clust_mean_scale <- scale(df_clust_mean %>% select(-c(cluster_id)))
@@ -305,7 +286,7 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
     #' @description Plots the UMAP with a color gradient that correspond to the expression of a marker
     #' @param df_SNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
     #' @param marker_name  A string with the name of the marker or antigene we want to plot 
-    #' @param df_umap A dataframe with the coordinates of the umap for all cells
+    #' @param umap_m A dataframe with the coordinates of the umap for all cells
     #' @param fsc a flowSet
     #' @param file_name name of the flowSet
     #' @return A plot of the UMAP with the cells coloured by clusters
@@ -343,7 +324,7 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
     #' @name all_markers_expression
     #' @description Use the marker_expression function on each marker and plot all expression maps
     #' @param df_SNN  A data frame that corresponds to the expression matrix with a cluster number associated to each cell
-    #' @param df_umap A dataframe with the coordinates of the umap for all cells
+    #' @param umap_m A dataframe with the coordinates of the umap for all cells
     #' @param fsc a flowSet
     #' @param file_name name of the flowSet
     #' @return A list of ggplots
@@ -381,7 +362,7 @@ exp_matr_cpm <- norm_cyto(exp_matr)
 head(exp_matr_cpm)
 
 # Perform PCA
-PCA(exp_matr_cpm, 7, 19)
+PCA(exp_matr_cpm)
 df_pca <- choose_dims_PCA(pca, 5)
 
 # PCA Visualisation
@@ -390,7 +371,7 @@ ggplot(data = df_pca, aes_string(x = "PC1", y = "PC2")) + geom_point(size = 3, c
 fviz_contrib(pca, "var")
 
 # Perform Clustering
-df_SNN <- clustering_cyto(df_pca,exp_matr_cpm)
+df_SNN <- clustering_cyto(df_pca,exp_matr_cpm, 0.3)
 
 # Clustering Visualization
 plt_umap <- RunUMAP_cyto(df_SNN, df_pca)
@@ -400,8 +381,10 @@ plt_umap
 ## Heatmap:
 heatmap_cyto(df_SNN,fs_immune_control,file_name)
 ## Visualization of 1 marker on the UMAP: FJComp-APC-A <=> SiglecH
-plt_marker <- marker_expression(df_SNN,"SiglecH",umap_m, fs_immune_control,file_name); plt_marker
+
+plt_marker <- marker_expression(df_SNN,"Ly6C",umap_m, fs_immune_control,file_name); plt_marker
 plt_marker <- marker_expression(df_SNN,"FSC-A",umap_m, fs_immune_control,file_name); plt_marker
+
 ## Visualization of all markers on separated UMAP:
 myplots <- all_markers_expression(df_SNN,umap_m,fs_immune_control,file_name)
 
