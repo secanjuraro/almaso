@@ -1,0 +1,312 @@
+---
+title: "Vignette_almaso"
+author: "almaso"
+date: "2023-01-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(fig.height = 5, fig.width = 5, fig.align = "center", echo=TRUE, warning=FALSE, message=FALSE, cache=TRUE)
+source("almaso_pipeline.R", local = knitr::knit_global())
+```
+
+# **Vignette: Flow cytometry data analysis workflow**
+
+The goal of the project was to build a pipeline to analyse flow cytometry data in the manner of scRNA-Seq. This present vignette will present a full analysis using the *almaso* package. The functions used in this vignette are stored in the file *pipeline_functions.R*.
+
+To sum up, the pipeline goes through all those steps:
+
+1.  [Load the datas]
+
+2.  [Pre-processing]
+
+3.  [Dimension Reduction]
+
+4.  [Clustering]
+
+5.  [Differential expression and identification of markers]
+
+6.  [Biological interpretation]
+
+### Libraries
+
+The *renv* environment store every package necessary in the right version. Be careful to have all packages imported, present in the environment.
+
+```{r libraries}
+{
+  library(flowCore)
+  library(flowAI)
+  library(ggcyto)
+  library(PeacoQC)
+  library(data.table)
+  library(Seurat)
+  library(ggplot2)
+  library(tidyverse)
+  library(gridExtra)
+  library(ggrepel)
+  library(dplyr)
+  library(uwot)
+  library(FlowSOM)
+  library(ggcorrplot)
+  library(ggfortify)
+  library(factoextra)
+  library(edgeR)
+}
+```
+
+## Load the datas
+
+Flow Cytometry data are stored in *.fcs* files. The library **flowCore** provides data structures and basic functions to deal with those kind of data. They can be loaded as *flowFrame* or *flowSet*. The *flowFrame* class represents the data contained in a FCS file. Load with the function *read.flowFrame()*, a *flowFrame* contains:
+
+-   a numeric matrix **exprs** of the raw measurement values ( columns = markers, rows = cells)
+
+-   an object of class *AnnotatedDataFrame* **parameters** that describe the parameters (e.g., the measurement channels, stains, dynamic range)
+
+-   additional annotations provided through keywords in the FCS file (**description**), like the antigene names
+
+A *flowSet* is a countainer of one or multiple *flowFrames*. Because most of pre-processing functions are made for *flowSets,* in this vignette, we will load 1 dataset as *flowSets* (control sample). The *.fcs* file used here is stored in the *data* directory.
+
+The matrix of expression is composed of 69 421 cells (lines) and 20 parameters (columns): 6 structural parameters (FSC, SSC...), that gives information about cell size and cell complexity, and 13 fluorescent markers, that stain for specific antigenes. The time at which each cell passes through the laser is saved in the last column *Time* and used to identify each cell. For this analysis, it will not be relevant. That is why we don't import this column.
+
+The *truncate_max_range* argument is set to FALSE, because flow cytometry data have large range that can be truncated to simplified processing. Here we want to keep all information.
+
+```{r load_data}
+file_name_control = "cd45pos2_control_CD45+.fcs"
+path_control <- file.path("./data", file_name_control)
+
+control_sample = read.flowSet(path_control, column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
+
+control_sample
+```
+
+Here are summarized some commands from the **flowCore** package that are useful to access and examine *flowSets* objects. For more informations, please review the **flowCore** Reference Manual (<https://bioconductor.org/packages/release/bioc/manuals/flowCore/man/flowCore.pdf>).
+
+You can extract a particular *flowFrame* from a *flowSet* with the command below. Here, because *control-sample* only contains 1 *flowFrame*, we take the first (and only frame).
+
+```{r basic_command}
+control_sample[[1]]  # Extract the 1st flowFrame of the control_sample flowSet
+```
+
+## Pre-processing
+
+The first step of our pipeline is to preprocess the data in order to clean them for further analysis. Our pre-processing pipeline contains 3 steps :
+
+-   **Compensation** : control the spillover phenomenon happening during the fluorescence detection.
+
+-   **Quality control** : remove outliers and anomalies.
+
+-   **Normalization** : scale and normalization (TMM and logCPM) on the expression matrix.
+
+### Compensation
+
+The idea is to compensate for spillover between channels by applying a spillover matrix to a *flowFrame*. Some detectors may register fluorochroms signals that do not correspond to them. So, to compensate for this phenomenon, a spillover matrix (that expresses background noise and secondary signals for each channel) is applied the expression matrix (as a linear combination).
+
+Some flow cytometry dataset may already be compensated, so be careful. Here our data was already compensate, so the code is only an example. We use the *compensate()* function from **flowCore**.
+
+```{r compensation, eval=FALSE, include=TRUE}
+if(exists("control_sample[[1]]@description$`$SPILLOVER`")){
+  comp.mat <- control_sample[[1]]@description$`$SPILLOVER`
+  control_sample_comp <- compensate(control_sample, comp.mat)
+}
+```
+
+### Quality control
+
+The goal of quality control (QC) is to remove outliers and anomalies. For that, we choose 2 libraries that can both do QC.
+
+First is **flowAI**. It guarantee the stability of flow rate (remove flowrates that deviate from the median), the stability of signal acquisition ( intensity should always stay the same, detect deviations to the mean) and also the signal dynamic range consistency (remove outliers with Z-score and negatives values). The *flow_auto_qc* is a function of the **flowAI** package. It will create a file with graphs to explain the analysis conducted. In this vignette, it is not the QC method chosen.
+
+```{r flowAi, eval = FALSE}
+control_sample_qcAI <- flow_auto_qc(control_sample)
+```
+
+Second is **peacoQC**. It determines peaks on the channels in the *flowframe*. Then it will remove outliers and anomalies caused by e.g. clogs, changes in speed etc. by using an IsolationTree and/or the MAD method.
+
+The *peaco_QC()* function is from our package. It is using the *PeacoQC* function from the **peacoQC** package. The return object *control_sample_peacoQC* is a flowSet. A directory *PeacoQC_results* will be created, containing the data cleaned and some graphs.
+
+```{r PeacoQC, message=TRUE, warning=TRUE}
+control_sample_peacoQC <- peaco_QC(control_sample, file_name_control)
+```
+
+To visualize the results of the cleaning method, the heat-map from *PeacoQCHeatmap()* can be interesting.
+
+```{r QCheatmap, eval=FALSE}
+PeacoQCHeatmap("./PeacoQC_results/PeacoQC_report.txt")
+```
+
+### Normalization & scaling:
+
+First we extract the expression matrix from the cleaned dataset.
+
+```{r exp_mat}
+exp_mat_control <- exprs(control_sample_peacoQC[[1]])
+summary(exp_mat_control)
+```
+
+```{r distrib_avant, eval=FALSE, include=FALSE}
+dexmat <- as.data.frame(exp_mat_control)
+boxplot(dexmat, col = rainbow(ncol(dexmat)))
+```
+
+To normalize data, we decided to treat the flow cytometry data as scRNA-Seq data. So we used logCPM normalization on the expression matrix. But first the function *norm_cyto()* sets every negative value of expression matrix to 0 and removes the non useful column (*Original_ID*) created by peaco_QC(). It then performs the logCPM normalization.
+
+```{r normalization, echo=TRUE}
+exp_mat_cpm <- norm_cyto(exp_mat_control)
+summary(exp_mat_cpm)
+```
+
+Let's now visualize the impact of normalization.
+
+```{r boxplots, echo=FALSE, fig.width=10, fig.height=5}
+par(mfrow = c(1,2))
+dexmat <- as.data.frame(exp_mat_control)
+boxplot(dexmat, col = rainbow(ncol(dexmat)))  # , title("Before normalization")
+dexmat2 <- as.data.frame(exp_mat_cpm)
+boxplot(dexmat2, col =rainbow(ncol(dexmat2))) #, title("After normalization")
+title(" Before logCPM normalization (left) and After logCPM normalization (right)")
+par(mfrow= c(1,1))
+```
+
+### Some Plots to visualize
+
+The graph SSC=f(FSC) is actually really used during gating technique. Here it is only plot for our information. In this plot nothing is really stand out for our analysis.
+
+```{r plotSSCFSC}
+ggplot(as.data.frame(exp_mat_cpm), aes(`FSC-A`,`SSC-A`)) +  geom_jitter(color='Orange' )  +  labs(x = "FSC-A",y = "SSC-A",subtitle = "Plot FSC vs SSC")
+```
+
+## Dimension Reduction
+
+Since our dataset is only 20 parameters wide, dimensionality reduction may not appear as useful. But in order to increase separation between clusters, a PCA is recommended. The function *PCA()* is implemented such that we can choose the parameters (here fluorescent markers) on which the PCA will be applied.
+
+Here we applied *PCA()* from the 7th to the 19th parameters (markers) of the expression matrix cleaned and normalized. The function returns the plot of eigenvalues and save the result of the dimension reduction method in the object *pca*. This object is stored automatically in the environment by the function *PCA()*.
+
+```{r PCA}
+PCA(exp_mat_cpm, 7, 19)
+summary(pca)
+```
+
+With this last plot, the number of axes that explain the data can be visually evaluated. With the function *choose_dims_PCA()*, the user is able to chose the number of dimensions to keep, by putting it as parameters.
+
+Here 5 dimensions is taken to conduct our analysis.
+
+```{r dim_PCA}
+df_pca <- choose_dims_PCA(pca, 5)
+```
+
+Let's visualize the first 2 axes of the axes we choose to keep.
+
+```{r visuPCA}
+ggplot(data = df_pca, aes_string(x = "PC1", y = "PC2")) + geom_point(size = 3, color= "orange")
+```
+
+Here with this graph we can have a look of all variables contribution to the variance.
+
+```{r contribution_pca}
+fviz_contrib(pca, "var")
+```
+
+## Clustering
+
+To form clusters in our data, the (SNN + Louvain) clustering is applied, which is the same clustering method used in Seurat for scRNA-Seq data analysis. The function *clustering_cyto()* separates and clusters data on the data frame returned by the PCA.
+
+It then attaches to the expression matrix (cleaned and normalized) a column (*cluster_id)* that associates to each cell its cluster's ID. The result, here stored as df_SNN, is a dataframe (expression matrix + cluster_id).
+
+The third parameter of *clustering_cyto()* is the resolution of the Louvain clustering method. It is recommended to opt for low resolution. By default, it is 0.3. The lower the resolution is, the less clusters will be observed.
+
+```{r umap}
+df_SNN <- clustering_cyto(df_pca, exp_mat_cpm, 0.3)
+# head(df_SNN)
+```
+
+In order to have an similar approach to what is usually done on scRNA-Seq data, we decided to do a **UMAP** to display the clustering. The function *RunUMAP_cyto()* plots the UMAP with the clusters and saves a data frame with the UMAP coordinates and the cluster id associated to each cell, called **umap_m** directly in the environment.
+
+```{r plot_umap, fig.height=6, fig.width=8}
+plt_umap <- RunUMAP_cyto(df_SNN, df_pca)
+plt_umap
+```
+
+### Heatmap and other plots
+
+To have a better overview of the clusters, we can plot a heatmap. The *heatmap_cyto()* function takes the as argument and plot the heatmap of mean expression of each marker in each cluster.
+
+```{r heatmap_cluster, echo=TRUE, error=FALSE, message=FALSE, warning=FALSE}
+heatmap_cyto(df_SNN,control_sample,file_name_control)
+```
+
+Let's also plot the expression of a specific marker on the UMAP representation with the function *marker_expression()*. It takes as argument the dataframe returned by the clustering, the name of a marker or an antigen, the UMAP coordinates dataframe, the flowSet file and the name of the file.
+
+Here we plot the expression of marker "FSC-A".
+
+```{r plt_markers2}
+plt_marker <- marker_expression(df_SNN,"FSC-A",umap_m, control_sample, file_name_control)
+plt_marker
+```
+
+Here we plot the expression of marker liked to the antigen "SiglecH".
+
+```{r plt_markers1}
+plt_marker <- marker_expression(df_SNN,"SiglecH",umap_m, control_sample, file_name_control )
+plt_marker
+```
+
+The function *all_markers_expression()* plots the the expression of all fluorescent markers on the UMAP representation. It takes as argument the dataframe returned by the clustering, the UMAP coordinates data frame, the *flowSet* file and the name of the file.
+
+*Be careful, this function takes a lot of time to run, take you time!*.
+
+```{r all_expression_markers, fig.height=11, fig.width=16, fig.align='center'}
+myplots <- all_markers_expression(df_SNN,umap_m, control_sample, file_name_control)
+```
+
+Let's plot the cell counts per cluster to have a better idea of the distribution of all cells in the different clusters.
+
+```{r count_plot}
+df_SNN %>% group_by(cluster_id) %>% summarise(total_count=n(), .groups = 'drop') %>% ggplot(aes(x = cluster_id, y = total_count)) + geom_bar(stat = "identity", color = 'orange') + ggtitle("Cells counts per cluster")
+```
+
+## Differential expression and identification of markers
+
+In order to identify the cell types based on our clustering, we needed to identify the markers that had a significant differential expression among the clusters.
+
+The function *findMarkers_cyto()* performs Wilcoxon tests, which are non-parametric Student tests to compare two samples. Tests are conducted on all clusters for each marker. Then top expressed markers for each cluster are identified based on adjusted p-values and log fold changes, as is usually done to identify DEGs for RNA-Seq data. They are stored in *df_wilcox* dataframe.
+
+The function *findMarkerd_cyto()* takes as argument the dataframe returned by the clustering.
+
+```{r find_markers}
+df_wilcox <- findMarkers_cyto(df_SNN)
+head(df_wilcox)
+```
+
+You can either filter your data with this kind of code or save the dataframe in a *.csv* file and finish the analysis in a tabler.
+
+```{r write_csv}
+# Let's choose some threshold to filter this dataframe:
+threshold_pca <- 0.05
+threshold_FC  <- 2.5
+
+test <- df_wilcox %>% dplyr::filter(adj_pvalue < threshold_pca & FC > threshold_FC )
+test
+
+# write a csv file
+write.csv(test, file = 'df_wilcox_pca.csv')
+```
+
+## Biological interpretation and limitations
+
+With the top expressed markers for each cluster, you can identify the cellular type of each (or more realistically, of some) cluster. No function is able to do that, you have to do it by hand, using the UMAP representation, all_markers_expression plots and the heatmap.
+
+This pipeline has limitations:
+
+-   Over-clusterization is a common phenomenon in our results.
+
+-   Don't hesitate to merge some clusters at the end.
+
+-   The heatmap seems to have a problem Be careful of number columns
+
+Hopefully this vignette had teach you how to use our pipeline and numerous functions.
+
+```{r sessioninfos}
+sessionInfo()
+```
+
