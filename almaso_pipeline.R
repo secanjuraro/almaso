@@ -135,7 +135,7 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
 
   clustering_cyto <- function(df_pca,expr_df, resolution = 0.3) {
     SNN_graph <- bluster::makeSNNGraph(df_pca) # Build the SNN graph for community detection
-    louvain_clusters <- igraph::cluster_louvain(SNN_graph, resolution) # Implementation of the Louvain method to find clusters
+    louvain_clusters <- igraph::cluster_louvain(SNN_graph, resolution = resolution) # Implementation of the Louvain method to find clusters
     clusters_id <- communities(louvain_clusters) # Get the cluster for each cell
 
     df_SNN <- data.frame(cell = numeric(),cluster = numeric()) # Initialize dataframe with each cell associated to a cluster
