@@ -263,8 +263,6 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
   ############################
 
   #Heatmap
-
-  {
     #' @title Make heatmap of marker expression in clusters
     #' @name  heatmap_cyto
     #' @description Build heatmap of mean expression of each marker in each cluster
@@ -280,17 +278,16 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
         df_clust_mean <- df_clust %>% select(-(contains("FSC") | contains("SSC"))) %>% group_by(cluster_id) %>% summarise(across(everything(), mean, na.rm=TRUE))  #%>% remove_rownames %>% column_to_rownames(var="cluster_id")
 
         #Scale values
-        for( i in colnames(df_clust_mean %>% select(-c(cluster_id)))){
-          df_clust_mean[[i]] <- scale(df_clust_mean[[i]])
-        }
-
+        df_clust_mean_scale <- scale(df_clust_mean %>% select(-c(cluster_id)))
+        df_clust_mean_scale <- cbind(df_clust_mean_scale, df_clust_mean['cluster_id'])
+        
         #Change marker names to antigene names
         antigene_list <- as.vector(fsc@frames[[file_name]]@parameters@data[["desc"]]) # we take the gene names column stored in the "desc" variable
         antigene_list <-antigene_list[7:length(antigene_list)] # Only the columns 7 to 19 have gene associated
-        colnames(df_clust_mean)[2:14] <- antigene_list
+        colnames(df_clust_mean_scale)[1:13] <- antigene_list
 
         #Melt dataframe to use ggplot
-        melt_df_clust <<- reshape2::melt(df_clust_mean)
+        melt_df_clust <<- reshape2::melt(df_clust_mean_scale)
         colnames(melt_df_clust) <- c("cluster","antigene","value")
         melt_df_clust$cluster <- as.numeric(melt_df_clust$cluster)
 
@@ -363,8 +360,6 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
     }
 
   }
-
-}
 
 
 #######################
