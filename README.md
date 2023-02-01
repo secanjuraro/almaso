@@ -2,7 +2,5 @@
 
 ### Description
 This R project proposes a pipeline to analyze flow cytometry data with a scRNA-Seq approach. 
-A tutorial can be found at: 
 
-[test](almaso/R/PeacoQC_results/PeacoQC_report.txt)
-
+A tutorial can be found at: [vignette](almaso/R/Vignette_almaso_Rmarkdown.Rmd)
