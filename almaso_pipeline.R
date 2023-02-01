@@ -31,6 +31,12 @@ path <- file.path("data", file_name); path
 immune_control = read.FCS(path, column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
 fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern = TRUE, truncate_max_range = FALSE)
 
+
+############################
+###### FUNCTIONS ###########
+############################
+
+
 {
 
   ############################
