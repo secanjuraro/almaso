@@ -77,7 +77,7 @@ fs_immune_control = read.flowSet(path, column.pattern = "Time", invert.pattern =
     
     exp_matr[exp_matr <0 ] <- 0 #Attribute zero to negative values
     exp_matr <- as.data.frame(exp_matr) %>% select(-('Original_ID'))  #Remove column Original_ID that was added by PeacoQC
-    exp_matr_cpm <- cpm(exp_matr) #Perform logCPM transformation
+    exp_matr_cpm <- as.data.frame(cpm(exp_matr)) #Perform logCPM transformation
 
     return(exp_matr_cpm)
   }
