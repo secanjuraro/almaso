@@ -14,6 +14,3 @@ In this repository you will find:
        *	A *Vignette_almaso_Rmarkdown.Rmd* file and its HTML knit version: it is a tutorial on how to use the pipeline we created. It has cache and file repositories. 
        *	The *PeacoQC_result/* repository is the result of the function peaco_QC run in the vignette. 
        *	The *df_wilcox_pca.csv* file is the result of the last function (run in the vignette). It is table of all pvalue and log Fold Change for all clusters against all markers for the data file used in the vignette.
-
-
-A tutorial can be found at: [vignette](almaso/R/Vignette_almaso_Rmarkdown.Rmd) the file Rmarkdown or HTML file at almaso/R/Vignette_almaso_Rmarkdown.html
